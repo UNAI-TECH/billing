@@ -502,7 +502,7 @@ export const Payroll = () => {
         {/* Filter Controls & Search */}
         <div className="flex flex-row items-center justify-between gap-4 bg-white p-4 rounded-2xl border border-slate-200/65 shadow-xs">
           {/* Search bar & Filter Toggle */}
-          <div className="relative max-w-sm w-full filter-popover-container">
+          <div className="relative w-full filter-popover-container">
             <div className="relative">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input

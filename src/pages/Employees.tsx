@@ -5,7 +5,7 @@ import { useToast } from '../components/ui/Toast';
 import { Button } from '../components/ui/Button';
 import { getCompanyEmployees, saveCompanyEmployees, getAllExpenses } from '../services/db';
 import { useDocument } from '../contexts/DocumentContext';
-import { formatCurrency, validateEmail, validatePhone, validatePassword } from '../utils/formatting';
+import { formatCurrency, validateEmail, validatePhone, validatePassword, generateStrongPassword } from '../utils/formatting';
 import { 
   Users, 
   UserPlus, 
@@ -26,7 +26,12 @@ import {
   Mail,
   Briefcase,
   Banknote,
-  ChevronDown
+  ChevronDown,
+  RefreshCw,
+  Copy,
+  RotateCcw,
+  CheckCircle2,
+  KeyRound
 } from 'lucide-react';
 import { ConfirmModal } from '../components/ui/ConfirmModal';
 
@@ -55,6 +60,8 @@ interface Employee {
   createdAt: string;
   photo?: string;
   mustChangePassword?: boolean;
+  passwordSetByEmployee?: boolean;
+  passwordUpdatedAt?: string;
 }
 
 const defaultPermissions: EmployeePermissions = {
@@ -114,6 +121,112 @@ export const Employees = () => {
   const [activeTab, setActiveTab] = useState<'info' | 'invoices' | 'documents' | 'expenses'>('info');
   const [expenses, setExpenses] = useState<any[]>([]);
   const { documents } = useDocument();
+
+  // Password visibility states
+  const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
+  const [showDetailPassword, setShowDetailPassword] = useState(false);
+
+  // Reset password modal state (Admin-only)
+  const [resetModalEmp, setResetModalEmp] = useState<Employee | null>(null);
+  const [resetTempPassword, setResetTempPassword] = useState('');
+  const [showResetTempPassword, setShowResetTempPassword] = useState(true);
+  const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
+  const [resetSuccessModal, setResetSuccessModal] = useState<{ empName: string; loginId: string; tempPass: string } | null>(null);
+
+  const toggleRevealPassword = (empId: string) => {
+    setRevealedPasswords(prev => ({
+      ...prev,
+      [empId]: !prev[empId]
+    }));
+  };
+
+  const copyToClipboard = (text: string, label: string) => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text);
+        showToast(`${label} copied to clipboard!`, 'success');
+      } else {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        showToast(`${label} copied to clipboard!`, 'success');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast(`Could not copy ${label}.`, 'warning');
+    }
+  };
+
+  const handleOpenResetPassword = (emp: Employee) => {
+    const newTemp = generateStrongPassword(10);
+    setResetModalEmp(emp);
+    setResetTempPassword(newTemp);
+    setShowResetTempPassword(true);
+  };
+
+  const handleConfirmResetPassword = async () => {
+    if (!resetModalEmp || !activeCompany) return;
+    const cleanPass = resetTempPassword.trim();
+    if (!cleanPass) {
+      showToast('Temporary password is required.', 'error');
+      return;
+    }
+    if (!validatePassword(cleanPass)) {
+      showToast('Password must be at least 8 characters, containing uppercase, lowercase, and a symbol.', 'error');
+      return;
+    }
+
+    setResetPasswordLoading(true);
+    try {
+      let updatedEmpObj: Employee | null = null;
+      const updatedList = employees.map(e => {
+        if (e.id === resetModalEmp.id) {
+          updatedEmpObj = {
+            ...e,
+            password: cleanPass,
+            mustChangePassword: true,
+            passwordSetByEmployee: false,
+            passwordUpdatedAt: new Date().toISOString()
+          };
+          return updatedEmpObj;
+        }
+        return e;
+      });
+
+      await saveCompanyEmployees(activeCompany.id, updatedList);
+      setEmployees(updatedList);
+
+      if (activeEmployeeDetail && activeEmployeeDetail.id === resetModalEmp.id && updatedEmpObj) {
+        setActiveEmployeeDetail(updatedEmpObj);
+      }
+
+      const activeEmpJson = localStorage.getItem('activeEmployee');
+      if (activeEmpJson) {
+        const activeEmpObj = JSON.parse(activeEmpJson);
+        if (activeEmpObj.id === resetModalEmp.id && updatedEmpObj) {
+          localStorage.setItem('activeEmployee', JSON.stringify(updatedEmpObj));
+        }
+      }
+
+      setResetSuccessModal({
+        empName: resetModalEmp.name,
+        loginId: resetModalEmp.loginId,
+        tempPass: cleanPass
+      });
+      setResetModalEmp(null);
+      showToast(`Temporary password set for ${resetModalEmp.name}!`, 'success');
+    } catch (err: any) {
+      console.error('Failed to reset password:', err);
+      showToast(err.message || 'Failed to reset password.', 'error');
+    } finally {
+      setResetPasswordLoading(false);
+    }
+  };
 
   useEffect(() => {
     const loadExpenses = async () => {
@@ -218,12 +331,8 @@ export const Employees = () => {
     const generatedLoginId = `${companyClean}${paddedNum}`;
     setLoginId(generatedLoginId);
 
-    // Generate random 8-character temporary password
-    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-    let generatedPass = '';
-    for (let i = 0; i < 8; i++) {
-      generatedPass += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
+    // Generate temporary strong password satisfying all criteria (uppercase, lowercase, number, symbol)
+    const generatedPass = generateStrongPassword(10);
     setPassword(generatedPass);
 
     setPhone('');
@@ -366,7 +475,8 @@ export const Employees = () => {
           isAdmin,
           createdAt: new Date().toISOString(),
           photo: photo,
-          mustChangePassword: true
+          mustChangePassword: true,
+          passwordSetByEmployee: false
         };
         updatedList.push(newEmployee);
         showToast(`Employee "${newEmployee.name}" created successfully!`, 'success');
@@ -386,7 +496,8 @@ export const Employees = () => {
               permissions,
               isAdmin,
               photo: photo,
-              mustChangePassword: passwordChanged ? true : emp.mustChangePassword
+              mustChangePassword: passwordChanged ? true : emp.mustChangePassword,
+              passwordSetByEmployee: passwordChanged ? false : emp.passwordSetByEmployee
             };
             // Sync current logged-in employee session if updated
             const activeEmpJson = localStorage.getItem('activeEmployee');
@@ -548,7 +659,7 @@ export const Employees = () => {
         
         {/* Top Controls Bar */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="relative flex-1 max-w-md">
+          <div className="relative flex-1 w-full">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-400" />
             <input
               type="text"
@@ -1009,14 +1120,34 @@ export const Employees = () => {
 
                       {/* Password */}
                       <div>
-                        <label className="block text-xs font-bold text-slate-800 mb-1.5">Password</label>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="block text-xs font-bold text-slate-800">Password</label>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newPass = generateStrongPassword(10);
+                              setPassword(newPass);
+                              setShowPassword(true);
+                              setFormError('');
+                              showToast('Generated strong compliant password!', 'info');
+                            }}
+                            className="text-[11px] font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1 hover:underline cursor-pointer"
+                            title="Generate strong compliant password"
+                          >
+                            <RefreshCw className="w-3 h-3" />
+                            <span>Auto-generate</span>
+                          </button>
+                        </div>
                         <div className="relative">
                           <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                           <input
                             type={showPassword ? 'text' : 'password'}
                             value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            placeholder="Assign password (min 4 chars)"
+                            onChange={(e) => {
+                              setPassword(e.target.value);
+                              if (formError) setFormError('');
+                            }}
+                            placeholder="Min 8 chars (uppercase, lowercase, number, symbol)"
                             className="w-full pl-9 pr-10 py-2 border border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 outline-none text-sm transition-all font-mono"
                             required
                             autoComplete="new-password"
@@ -1025,7 +1156,7 @@ export const Employees = () => {
                           <button
                             type="button"
                             onClick={() => setShowPassword(!showPassword)}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none"
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer"
                           >
                             {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                           </button>
@@ -1412,19 +1543,81 @@ export const Employees = () => {
                         <h4 className="text-xs font-extrabold text-slate-800 uppercase tracking-wider">Contact Details</h4>
                         
                         <div className="space-y-3">
-                          <div className="flex items-center gap-3 text-xs">
-                            <Lock className="w-4 h-4 text-slate-400" />
-                            <div>
-                              <p className="text-[10px] text-slate-400 font-semibold">Employee Login ID</p>
-                              <p className="font-mono font-bold text-slate-800">{activeEmployeeDetail.loginId}</p>
+                          <div className="flex items-center justify-between text-xs bg-white p-2.5 rounded-xl border border-slate-200/60">
+                            <div className="flex items-center gap-2.5">
+                              <Lock className="w-4 h-4 text-slate-400" />
+                              <div>
+                                <p className="text-[10px] text-slate-400 font-semibold">Employee Login ID</p>
+                                <p className="font-mono font-bold text-slate-800">{activeEmployeeDetail.loginId}</p>
+                              </div>
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(activeEmployeeDetail.loginId, 'Employee ID')}
+                              className="text-slate-400 hover:text-indigo-600 transition-colors p-1 rounded-lg hover:bg-slate-50 cursor-pointer"
+                              title="Copy Employee ID"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                            </button>
                           </div>
 
-                          <div className="flex items-center gap-3 text-xs">
-                            <Key className="w-4 h-4 text-slate-400" />
-                            <div>
-                              <p className="text-[10px] text-slate-400 font-semibold">Password</p>
-                              <p className="font-mono font-bold text-slate-800">{activeEmployeeDetail.password}</p>
+                          <div className="flex items-center justify-between text-xs bg-white p-2.5 rounded-xl border border-slate-200/60">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <Key className="w-4 h-4 text-slate-400 shrink-0" />
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 leading-none">
+                                  <span className="text-[10px] text-slate-400 font-semibold">Password</span>
+                                  {activeEmployeeDetail.mustChangePassword ? (
+                                    <span className="text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200/80 px-1.5 py-0.5 rounded-md leading-none">
+                                      Temporary
+                                    </span>
+                                  ) : (
+                                    <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-1.5 py-0.5 rounded-md leading-none">
+                                      Active
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="font-mono font-bold text-slate-800 text-xs mt-1 truncate tracking-wider">
+                                  {showDetailPassword ? activeEmployeeDetail.password : '••••••••••••'}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0 ml-2">
+                              <button
+                                type="button"
+                                onClick={() => setShowDetailPassword(!showDetailPassword)}
+                                className="p-1.5 text-slate-400 hover:text-slate-600 transition-colors rounded-lg hover:bg-slate-50 cursor-pointer"
+                                title={showDetailPassword ? "Hide password" : "Show password"}
+                              >
+                                {showDetailPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => copyToClipboard(activeEmployeeDetail.password, 'Password')}
+                                className="p-1.5 text-slate-400 hover:text-indigo-600 transition-colors rounded-lg hover:bg-slate-50 cursor-pointer"
+                                title="Copy Password"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                              </button>
+                              {!activeEmployeeDetail.mustChangePassword ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenResetPassword(activeEmployeeDetail)}
+                                  className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200/80 px-2 py-1 rounded-lg transition-all cursor-pointer whitespace-nowrap ml-1 shadow-2xs active:scale-95"
+                                  title="Reset employee password to a temporary password"
+                                >
+                                  <RotateCcw className="w-3 h-3 text-amber-600" />
+                                  <span>Reset</span>
+                                </button>
+                              ) : (
+                                <span 
+                                  className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-400 bg-slate-100 border border-slate-200/60 px-2 py-1 rounded-lg cursor-not-allowed whitespace-nowrap ml-1"
+                                  title="Reset will be available once employee sets permanent password on login"
+                                >
+                                  <RotateCcw className="w-3 h-3 text-slate-300" />
+                                  <span>Pending</span>
+                                </span>
+                              )}
                             </div>
                           </div>
 
@@ -1651,14 +1844,6 @@ export const Employees = () => {
 
               {/* Footer */}
               <div className="p-5 border-t border-slate-100 bg-slate-50/50 shrink-0 flex justify-end gap-3">
-                <Button
-                  variant="outline"
-                  className="rounded-xl px-5 py-2.5 text-xs font-bold"
-                  onClick={() => setActiveEmployeeDetail(null)}
-                >
-                  Close Profile
-                </Button>
-                
                 <label htmlFor="photoUploadDetailBtn" className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition-all cursor-pointer shadow-md shadow-indigo-50">
                   <UserPlus className="w-4 h-4" />
                   <span>Upload Photo</span>
@@ -1672,6 +1857,197 @@ export const Employees = () => {
                 </label>
               </div>
 
+            </div>
+          </div>
+        )}
+
+        {/* Reset Employee Password Modal (Admin Only) */}
+        {resetModalEmp && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+            <div className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 space-y-5 animate-in zoom-in-95 duration-200 font-sans">
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600 shadow-2xs">
+                    <KeyRound className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-slate-900 text-base leading-tight">Reset Password</h3>
+                    <p className="text-[11px] text-slate-400 font-medium">Generate temporary login credentials</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setResetModalEmp(null)}
+                  className="w-7 h-7 rounded-xl border border-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Target Employee Info */}
+              <div className="bg-slate-50 border border-slate-200/60 rounded-2xl p-3.5 flex items-center gap-3">
+                {resetModalEmp.photo ? (
+                  <img
+                    src={resetModalEmp.photo}
+                    alt={resetModalEmp.name}
+                    className="w-10 h-10 rounded-xl object-cover border border-slate-200"
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-xs uppercase shrink-0">
+                    {resetModalEmp.name.split(' ').map(n => n[0]).join('').substring(0, 2)}
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <h4 className="font-bold text-slate-900 text-xs truncate">{resetModalEmp.name}</h4>
+                  <p className="text-[10px] text-slate-400 font-mono">ID: {resetModalEmp.loginId}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                    <CheckCircle2 className="w-2.5 h-2.5" />
+                    Active Pass
+                  </span>
+                </div>
+              </div>
+
+              {/* Current Password Preview */}
+              <div className="bg-slate-50/70 border border-slate-200/60 rounded-xl px-3.5 py-2.5 flex items-center justify-between text-xs">
+                <span className="text-slate-500 font-medium text-[11px]">Current Active Password:</span>
+                <span className="font-mono font-bold text-slate-800 bg-white px-2 py-0.5 rounded border border-slate-200/60 text-[11px]">
+                  {resetModalEmp.password}
+                </span>
+              </div>
+
+              {/* Notice / Explanation */}
+              <div className="p-3 bg-amber-50/70 border border-amber-200/60 rounded-xl text-[11px] text-amber-900 leading-relaxed space-y-1">
+                <p className="font-semibold text-amber-950">How this works:</p>
+                <p>
+                  Setting this temporary password will require <span className="font-bold">{resetModalEmp.name}</span> to enter a <strong>New Password</strong> and <strong>Confirm Password</strong> upon their next login.
+                </p>
+                <p className="text-amber-800">
+                  Once they complete setup, their new password will automatically update and be displayed here in your Admin dashboard.
+                </p>
+              </div>
+
+              {/* Temporary Password Input */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-800">New Temporary Password</label>
+                  <button
+                    type="button"
+                    onClick={() => setResetTempPassword(generateStrongPassword(10))}
+                    className="text-[11px] font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1 hover:underline cursor-pointer"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    <span>Auto-generate</span>
+                  </button>
+                </div>
+
+                <div className="relative">
+                  <Key className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type={showResetTempPassword ? "text" : "password"}
+                    value={resetTempPassword}
+                    onChange={(e) => setResetTempPassword(e.target.value)}
+                    className="w-full pl-10 pr-20 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-indigo-600 focus:bg-white transition-all"
+                    required
+                  />
+                  <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowResetTempPassword(!showResetTempPassword)}
+                      className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+                      title={showResetTempPassword ? "Hide password" : "Show password"}
+                    >
+                      {showResetTempPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(resetTempPassword, 'Temporary Password')}
+                      className="p-1 text-slate-400 hover:text-indigo-600 cursor-pointer"
+                      title="Copy Password"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-2.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setResetModalEmp(null)}
+                  className="flex-1 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs rounded-xl transition-all cursor-pointer"
+                  disabled={resetPasswordLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmResetPassword}
+                  disabled={resetPasswordLoading}
+                  className="flex-1 py-2.5 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white font-bold text-xs rounded-xl shadow-md shadow-amber-600/20 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>{resetPasswordLoading ? 'Resetting...' : 'Confirm Reset'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Reset Success Modal with Quick Copy */}
+        {resetSuccessModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+            <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 text-center space-y-4 animate-in zoom-in-95 duration-200 font-sans">
+              <div className="w-12 h-12 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 mx-auto shadow-2xs">
+                <CheckCircle2 className="w-6 h-6 stroke-[2.5]" />
+              </div>
+
+              <div className="space-y-1">
+                <h3 className="font-extrabold text-slate-900 text-base">Password Reset Completed</h3>
+                <p className="text-xs text-slate-500">
+                  Share these temporary credentials with <span className="font-bold text-slate-800">{resetSuccessModal.empName}</span>.
+                </p>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200/70 rounded-2xl p-3.5 text-left space-y-2">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-400 font-semibold">Employee ID:</span>
+                  <span className="font-mono font-bold text-slate-800">{resetSuccessModal.loginId}</span>
+                </div>
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-400 font-semibold">Temporary Password:</span>
+                  <span className="font-mono font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100">
+                    {resetSuccessModal.tempPass}
+                  </span>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-400">
+                On next login, the employee will be prompted to create and confirm their permanent password.
+              </p>
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    copyToClipboard(`Employee ID: ${resetSuccessModal.loginId}\nTemporary Password: ${resetSuccessModal.tempPass}`, 'Credentials');
+                  }}
+                  className="flex-1 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs rounded-xl border border-indigo-200/70 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Copy Details</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setResetSuccessModal(null)}
+                  className="flex-1 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition-all cursor-pointer"
+                >
+                  Done
+                </button>
+              </div>
             </div>
           </div>
         )}

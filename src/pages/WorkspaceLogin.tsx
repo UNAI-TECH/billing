@@ -6,7 +6,7 @@ import { loginAsEmployee, getCompanyEmployees, saveCompanyEmployees } from '../s
 import { 
   Shield, Lock, User, Eye, EyeOff, AlertCircle, 
   ArrowRight, Building2, LogOut, KeyRound, Users, UserPlus,
-  FileText, Receipt, CreditCard, BookOpen, X, ArrowLeft
+  FileText, Receipt, CreditCard, BookOpen, X, ArrowLeft, CheckCircle2, Check
 } from 'lucide-react';
 import { useToast } from '../components/ui/Toast';
 import { validatePassword } from '../utils/formatting';
@@ -36,8 +36,11 @@ export const WorkspaceLogin = () => {
   // Password reset states for employee force reset
   const [mustChangeScreen, setMustChangeScreen] = useState(false);
   const [tempEmployee, setTempEmployee] = useState<any>(null);
+  const [tempCompany, setTempCompany] = useState<any>(null);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [changePasswordLoading, setChangePasswordLoading] = useState(false);
 
   const handleAdminLogin = (e: React.FormEvent) => {
@@ -65,36 +68,40 @@ export const WorkspaceLogin = () => {
     e.preventDefault();
     setErrorMsg('');
 
-    if (!employeeLoginId.trim()) {
+    const cleanLoginId = employeeLoginId.trim();
+    const cleanPassword = employeePassword.trim();
+
+    if (!cleanLoginId) {
       setErrorMsg('Employee ID is required.');
       return;
     }
-    if (!employeePassword.trim()) {
+    if (!cleanPassword) {
       setErrorMsg('Password is required.');
       return;
     }
 
-    if (!activeCompany) return;
-
     setLoading(true);
     try {
       const { company, employee } = await loginAsEmployee(
-        activeCompany.companyCode,
-        employeeLoginId.trim(),
-        employeePassword.trim()
+        activeCompany?.companyCode || '',
+        cleanLoginId,
+        cleanPassword
       );
+
+      setTempCompany(company);
+      setTempEmployee(employee);
       
       if (employee.mustChangePassword) {
-        setTempEmployee(employee);
         setMustChangeScreen(true);
         setNewPassword('');
         setConfirmPassword('');
-        showToast('Temporary password detected. Please set a new password.', 'info');
+        showToast('Temporary password verified. Please create your permanent password.', 'info');
         return;
       }
       
-      // Save company profile in context
+      // Save company profile in context & switch to this company
       await saveCompanyProfile(company);
+      await switchCompany(company.id);
       // Set active employee session
       localStorage.setItem('activeEmployee', JSON.stringify(employee));
       // Authenticate current session
@@ -113,38 +120,71 @@ export const WorkspaceLogin = () => {
     e.preventDefault();
     setErrorMsg('');
 
-    if (!newPassword.trim()) {
+    const cleanNewPass = newPassword.trim();
+    const cleanConfirmPass = confirmPassword.trim();
+
+    if (!cleanNewPass) {
       setErrorMsg('New password is required.');
       return;
     }
-    if (!validatePassword(newPassword.trim())) {
+    if (!validatePassword(cleanNewPass)) {
       setErrorMsg('Password must be at least 8 characters, containing uppercase, lowercase, and a symbol.');
       return;
     }
-    if (newPassword !== confirmPassword) {
+    if (cleanNewPass !== cleanConfirmPass) {
       setErrorMsg('Passwords do not match.');
       return;
     }
+    if (tempEmployee && tempEmployee.password === cleanNewPass) {
+      setErrorMsg('New password cannot be the same as your temporary password.');
+      return;
+    }
 
-    if (!activeCompany) return;
+    const targetCompany = tempCompany || activeCompany;
+    if (!targetCompany || !tempEmployee) {
+      setErrorMsg('Session expired. Please try logging in again.');
+      return;
+    }
 
     setChangePasswordLoading(true);
     try {
-      const employees = await getCompanyEmployees(activeCompany.id);
+      const employees = await getCompanyEmployees(targetCompany.id);
+      let updatedEmployee: any = null;
       const updatedList = employees.map(e => {
-        if (e.id === tempEmployee.id || e.loginId === tempEmployee.loginId) {
-          return {
+        if (e.id === tempEmployee.id || (e.loginId && e.loginId.toLowerCase() === tempEmployee.loginId.toLowerCase())) {
+          updatedEmployee = {
             ...e,
-            password: newPassword,
-            mustChangePassword: false
+            password: cleanNewPass,
+            mustChangePassword: false,
+            passwordSetByEmployee: true,
+            passwordUpdatedAt: new Date().toISOString()
           };
+          return updatedEmployee;
         }
         return e;
       });
-      await saveCompanyEmployees(activeCompany.id, updatedList);
-      showToast('Password updated successfully. Please login with your new password.', 'success');
-      setMustChangeScreen(false);
-      setEmployeePassword('');
+
+      if (!updatedEmployee) {
+        updatedEmployee = {
+          ...tempEmployee,
+          password: cleanNewPass,
+          mustChangePassword: false,
+          passwordSetByEmployee: true,
+          passwordUpdatedAt: new Date().toISOString()
+        };
+        updatedList.push(updatedEmployee);
+      }
+
+      await saveCompanyEmployees(targetCompany.id, updatedList);
+
+      // Directly log employee into their workspace
+      await saveCompanyProfile(targetCompany);
+      await switchCompany(targetCompany.id);
+      localStorage.setItem('activeEmployee', JSON.stringify(updatedEmployee));
+      setAuthenticatedState(true);
+
+      showToast(`Password updated successfully! Welcome to your workspace, ${updatedEmployee.name || tempEmployee.name}!`, 'success');
+      navigate('/dashboard');
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to update password.');
     } finally {
@@ -155,44 +195,103 @@ export const WorkspaceLogin = () => {
   const renderCardContent = () => (
     <>
       {mustChangeScreen ? (
-        <div className="space-y-6">
-          <div className="text-center space-y-2 mb-2">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-indigo-50 border border-indigo-100 mb-2">
+        <div className="space-y-5">
+          <div className="text-center space-y-1.5 mb-1">
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-indigo-50 border border-indigo-100 mb-1 shadow-xs">
               <KeyRound className="w-6 h-6 text-indigo-600" />
             </div>
-            <h3 className="font-bold text-slate-900 text-lg">Change Temporary Password</h3>
-            <p className="text-xs text-slate-500 font-medium">To secure your account, you must change your temporary password.</p>
+            <h3 className="font-bold text-slate-900 text-lg">Create Your Password</h3>
+            <p className="text-xs text-slate-500 font-medium">First-time login: Set your permanent password to access your workspace.</p>
           </div>
 
           <form onSubmit={handleChangePasswordSubmit} className="space-y-4">
+            {/* Readonly Employee ID field */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-bold text-slate-800">Employee ID</label>
+                <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-200/60 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3 text-indigo-600" />
+                  Permanent ID
+                </span>
+              </div>
+              <div className="relative">
+                <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-600" />
+                <input
+                  type="text"
+                  value={tempEmployee?.loginId || employeeLoginId}
+                  disabled
+                  readOnly
+                  className="w-full pl-10 pr-4 py-2.5 bg-indigo-50/50 border border-indigo-200/70 rounded-xl text-xs font-bold text-indigo-950 select-none cursor-not-allowed font-mono tracking-wide shadow-xs"
+                />
+              </div>
+              <p className="text-[10px] text-slate-400 font-medium mt-1">
+                Your Employee ID remains unchanged for all future logins.
+              </p>
+            </div>
+
+            {/* New Password */}
             <div>
               <label className="block text-xs font-semibold text-slate-800 mb-1.5">New Password</label>
               <div className="relative">
                 <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
-                  type="password"
+                  type={showNewPassword ? "text" : "password"}
                   value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="Enter new password"
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-indigo-600 text-slate-800 placeholder-slate-400 transition-all"
+                  onChange={(e) => { setNewPassword(e.target.value); setErrorMsg(''); }}
+                  placeholder="Enter new strong password"
+                  className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-indigo-600 text-slate-800 placeholder-slate-400 transition-all font-mono"
                   required
                   autoFocus
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPassword(!showNewPassword)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 bg-transparent border-none cursor-pointer p-0"
+                >
+                  {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
             </div>
 
+            {/* Confirm New Password */}
             <div>
               <label className="block text-xs font-semibold text-slate-800 mb-1.5">Confirm New Password</label>
               <div className="relative">
                 <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
-                  type="password"
+                  type={showConfirmPassword ? "text" : "password"}
                   value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Confirm new password"
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-indigo-600 text-slate-800 placeholder-slate-400 transition-all"
+                  onChange={(e) => { setConfirmPassword(e.target.value); setErrorMsg(''); }}
+                  placeholder="Confirm your new password"
+                  className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-indigo-600 text-slate-800 placeholder-slate-400 transition-all font-mono"
                   required
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 bg-transparent border-none cursor-pointer p-0"
+                >
+                  {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Password Requirements Checklist */}
+            <div className="p-2.5 bg-slate-50 border border-slate-200/80 rounded-xl space-y-1.5 text-[11px]">
+              <span className="font-bold text-slate-700 block text-[10px] uppercase tracking-wider">Password Requirements:</span>
+              <div className="grid grid-cols-1 gap-1 text-slate-600">
+                <div className={`flex items-center gap-1.5 ${newPassword.length >= 8 ? 'text-emerald-600 font-bold' : 'text-slate-500'}`}>
+                  <Check className={`w-3 h-3 ${newPassword.length >= 8 ? 'text-emerald-600 stroke-[3]' : 'text-slate-300'}`} />
+                  <span>At least 8 characters</span>
+                </div>
+                <div className={`flex items-center gap-1.5 ${/[A-Z]/.test(newPassword) && /[a-z]/.test(newPassword) ? 'text-emerald-600 font-bold' : 'text-slate-500'}`}>
+                  <Check className={`w-3 h-3 ${/[A-Z]/.test(newPassword) && /[a-z]/.test(newPassword) ? 'text-emerald-600 stroke-[3]' : 'text-slate-300'}`} />
+                  <span>Uppercase & lowercase letters</span>
+                </div>
+                <div className={`flex items-center gap-1.5 ${/[0-9]/.test(newPassword) && /[^A-Za-z0-9]/.test(newPassword) ? 'text-emerald-600 font-bold' : 'text-slate-500'}`}>
+                  <Check className={`w-3 h-3 ${/[0-9]/.test(newPassword) && /[^A-Za-z0-9]/.test(newPassword) ? 'text-emerald-600 stroke-[3]' : 'text-slate-300'}`} />
+                  <span>At least one number & symbol</span>
+                </div>
               </div>
             </div>
 
@@ -203,13 +302,28 @@ export const WorkspaceLogin = () => {
               </div>
             )}
 
-            <Button
-              type="submit"
-              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md active:scale-95"
-              disabled={changePasswordLoading}
-            >
-              {changePasswordLoading ? 'Updating...' : 'Update Password & Login'}
-            </Button>
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setMustChangeScreen(false);
+                  setNewPassword('');
+                  setConfirmPassword('');
+                  setErrorMsg('');
+                }}
+                className="px-3.5 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 font-bold text-xs transition-all cursor-pointer"
+                disabled={changePasswordLoading}
+              >
+                Cancel
+              </button>
+              <Button
+                type="submit"
+                className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md active:scale-95"
+                disabled={changePasswordLoading}
+              >
+                {changePasswordLoading ? 'Saving...' : 'Set Password & Enter Workspace'}
+              </Button>
+            </div>
           </form>
         </div>
       ) : (

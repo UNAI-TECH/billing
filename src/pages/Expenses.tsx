@@ -33,7 +33,8 @@ import {
   TrendingUp,
   Settings,
   Eye,
-  Printer
+  Printer,
+  CheckSquare
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '../utils/formatting';
 import { ConfirmModal } from '../components/ui/ConfirmModal';
@@ -64,6 +65,9 @@ export const Expenses = () => {
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deleteExpenseId, setDeleteExpenseId] = useState<string | null>(null);
+  const [selectedExpenseIds, setSelectedExpenseIds] = useState<string[]>([]);
+  const [showDeleteMultipleModal, setShowDeleteMultipleModal] = useState(false);
+  const [isDeletingMultiple, setIsDeletingMultiple] = useState(false);
   const [showExpensePreviewModal, setShowExpensePreviewModal] = useState(false);
   const [expenseReportType, setExpenseReportType] = useState<'pdf' | 'excel' | null>(null);
   const [showMobileControls, setShowMobileControls] = useState(false);
@@ -419,12 +423,60 @@ export const Expenses = () => {
       }
 
       showToast('Expense deleted successfully', 'success');
+      setSelectedExpenseIds(prev => prev.filter(item => item !== deleteExpenseId));
       loadExpenses();
     } catch (err) {
       console.error(err);
       showToast('Failed to delete expense', 'error');
     } finally {
       setDeleteExpenseId(null);
+    }
+  };
+
+  // Multiple Selection & Bulk Delete Handlers
+  const handleToggleSelect = (id: string) => {
+    setSelectedExpenseIds(prev =>
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAll = () => {
+    if (selectedExpenseIds.length === filteredExpenses.length && filteredExpenses.length > 0) {
+      setSelectedExpenseIds([]);
+    } else {
+      setSelectedExpenseIds(filteredExpenses.map(e => e.id));
+    }
+  };
+
+  const handleConfirmDeleteMultiple = async () => {
+    if (selectedExpenseIds.length === 0) return;
+    setIsDeletingMultiple(true);
+    try {
+      const count = selectedExpenseIds.length;
+      for (const id of selectedExpenseIds) {
+        const expenseToDelete = expenses.find(e => e.id === id);
+        await deleteExpense(id);
+        if (expenseToDelete && expenseToDelete.documentId) {
+          try {
+            await removeDoc(expenseToDelete.documentId);
+          } catch (err) {
+            console.warn('Corresponding document could not be deleted:', err);
+          }
+        } else {
+          try {
+            await removeDoc(`doc_${id}`);
+          } catch (e) {}
+        }
+      }
+      showToast(`${count} expense${count > 1 ? 's' : ''} deleted successfully`, 'success');
+      setSelectedExpenseIds([]);
+      loadExpenses();
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to delete selected expenses', 'error');
+    } finally {
+      setIsDeletingMultiple(false);
+      setShowDeleteMultipleModal(false);
     }
   };
 
@@ -779,7 +831,7 @@ export const Expenses = () => {
 
         {/* Filter Panel */}
         <div className="bg-white p-5 rounded-3xl border border-[#f1f3f9] shadow-xs space-y-3">
-          <div className="relative max-w-sm w-full filter-popover-container">
+          <div className="relative w-full filter-popover-container">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
@@ -938,13 +990,37 @@ export const Expenses = () => {
 
         {/* Expenses List Table */}
         <div className="bg-white rounded-3xl border border-[#f1f3f9] shadow-xs overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-            <h3 className="font-extrabold text-slate-800 text-sm">Transaction Logs</h3>
+          <div className="px-6 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
+              <h3 className="font-extrabold text-slate-800 text-sm">Transaction Logs</h3>
               <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2.5 py-1 rounded-lg">
                 Showing {filteredExpenses.length} of {expenses.length} Entries
               </span>
             </div>
+
+            {selectedExpenseIds.length > 0 && (
+              <div className="flex items-center gap-2.5 animate-in fade-in slide-in-from-right-2 duration-200">
+                <span className="text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200/60 px-3 py-1.5 rounded-xl flex items-center gap-1.5">
+                  <CheckSquare className="w-3.5 h-3.5" />
+                  {selectedExpenseIds.length} selected
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedExpenseIds([])}
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
+                >
+                  Clear Selection
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteMultipleModal(true)}
+                  className="px-3.5 py-1.5 text-xs font-bold text-white bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-700 hover:to-rose-800 rounded-xl shadow-xs hover:shadow-md active:scale-95 transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Selected ({selectedExpenseIds.length})</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Desktop View (Table Layout) */}
@@ -952,7 +1028,16 @@ export const Expenses = () => {
             <table className="w-full text-left border-collapse text-xs font-sans">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 font-bold uppercase text-[9px] tracking-wider">
-                  <th className="py-4 px-6">Date</th>
+                  <th className="py-4 pl-6 pr-2 w-12 text-center">
+                    <input
+                      type="checkbox"
+                      checked={filteredExpenses.length > 0 && selectedExpenseIds.length === filteredExpenses.length}
+                      onChange={handleSelectAll}
+                      className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer accent-blue-600 transition-all"
+                      title={selectedExpenseIds.length === filteredExpenses.length ? "Deselect all" : "Select all"}
+                    />
+                  </th>
+                  <th className="py-4 px-4">Date</th>
                   <th className="py-4 px-6">Details</th>
                   <th className="py-4 px-6">Category</th>
                   <th className="py-4 px-6">Project / Event</th>
@@ -964,7 +1049,7 @@ export const Expenses = () => {
               <tbody className="divide-y divide-slate-100 font-medium">
                 {loading ? (
                   <tr>
-                    <td colSpan={7} className="py-12 text-center text-slate-400">
+                    <td colSpan={8} className="py-12 text-center text-slate-400">
                       <div className="flex justify-center items-center gap-2">
                         <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
                         <span>Loading expenses...</span>
@@ -973,7 +1058,7 @@ export const Expenses = () => {
                   </tr>
                 ) : filteredExpenses.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-16 text-center text-slate-400 font-medium">
+                    <td colSpan={8} className="py-16 text-center text-slate-400 font-medium">
                       <div className="max-w-xs mx-auto space-y-3">
                         <p className="text-slate-400 text-xs">No expense records found.</p>
                       </div>
@@ -981,13 +1066,24 @@ export const Expenses = () => {
                   </tr>
                 ) : (
                   filteredExpenses.map((row) => {
+                    const isSelected = selectedExpenseIds.includes(row.id);
                     const colors = getCategoryColorClasses(row.category);
                     const Icon = getCategoryIcon(row.category);
                     
                     return (
-                      <tr key={row.id} className="hover:bg-slate-50/40 transition-colors">
+                      <tr key={row.id} className={`transition-colors ${isSelected ? 'bg-blue-50/50 hover:bg-blue-50/70' : 'hover:bg-slate-50/40'}`}>
+                        {/* Checkbox */}
+                        <td className="py-4.5 pl-6 pr-2 w-12 text-center">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => handleToggleSelect(row.id)}
+                            className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer accent-blue-600 transition-all"
+                          />
+                        </td>
+
                         {/* Date */}
-                        <td className="py-4.5 px-6 text-slate-500 text-[11px] whitespace-nowrap">
+                        <td className="py-4.5 px-4 text-slate-500 text-[11px] whitespace-nowrap">
                           {formatDate(row.date)}
                         </td>
 
@@ -1069,17 +1165,26 @@ export const Expenses = () => {
               </div>
             ) : (
               filteredExpenses.map((row) => {
+                const isSelected = selectedExpenseIds.includes(row.id);
                 const colors = getCategoryColorClasses(row.category);
                 const Icon = getCategoryIcon(row.category);
 
                 return (
                   <div
                     key={row.id}
-                    className="p-5 bg-white border border-[#f1f3f9] rounded-3xl flex flex-col gap-4 shadow-xs hover:shadow-md transition-all duration-300 group"
+                    className={`p-5 bg-white border rounded-3xl flex flex-col gap-4 shadow-xs hover:shadow-md transition-all duration-300 group ${
+                      isSelected ? 'border-blue-300 bg-blue-50/15 ring-2 ring-blue-500/10' : 'border-[#f1f3f9]'
+                    }`}
                   >
-                    {/* Top Row: Category Badge + Date */}
+                    {/* Top Row: Checkbox + Category Badge + Date */}
                     <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => handleToggleSelect(row.id)}
+                          className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer accent-blue-600 shrink-0"
+                        />
                         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[10px] font-bold ${colors.bg} ${colors.text}`}>
                           <Icon className="w-3.5 h-3.5" />
                           {row.category}
@@ -1391,6 +1496,18 @@ export const Expenses = () => {
           confirmVariant="danger"
         />
 
+        {/* Multiple Delete Confirmation Modal */}
+        <ConfirmModal
+          isOpen={showDeleteMultipleModal}
+          onClose={() => !isDeletingMultiple && setShowDeleteMultipleModal(false)}
+          onConfirm={handleConfirmDeleteMultiple}
+          title="Delete Selected Expenses"
+          message={`Are you sure you want to delete ${selectedExpenseIds.length} selected expense entry${selectedExpenseIds.length > 1 ? 'ies' : ''}? This action cannot be undone and records will be moved to the Recycle Bin.`}
+          confirmText={isDeletingMultiple ? "Deleting..." : `Delete ${selectedExpenseIds.length} Expenses`}
+          confirmVariant="danger"
+          isLoading={isDeletingMultiple}
+        />
+
         {/* Budget Customize Modal */}
         {isBudgetModalOpen && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
@@ -1475,7 +1592,7 @@ export const Expenses = () => {
         )}
 
         {/* Hidden PDF Printable Wrapper */}
-        <div style={{ position: 'fixed', left: '-20000px', top: 0, opacity: 1, visibility: 'visible', pointerEvents: 'none', zIndex: -99999 }}>
+        <div style={{ position: 'fixed', left: 0, top: 0, width: '210mm', opacity: 1, visibility: 'visible', pointerEvents: 'none', zIndex: -99999, overflow: 'hidden' }}>
           <div ref={printRef} className="p-8 w-[210mm] min-h-[295mm] bg-white font-sans text-xs text-slate-800 space-y-6 relative overflow-hidden">
             {renderExpenseReportContent()}
           </div>
@@ -1655,6 +1772,35 @@ export const Expenses = () => {
                 ) : (
                   <Plus className="w-6 h-6 stroke-[2.8] transition-transform duration-300 group-hover:rotate-90" />
                 )}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Mobile Floating Action Banner for Multiple Delete */}
+        {selectedExpenseIds.length > 0 && (
+          <div className="md:hidden fixed bottom-24 left-4 right-4 z-40 bg-slate-900/95 backdrop-blur-md text-white p-3.5 rounded-2xl shadow-2xl flex items-center justify-between border border-slate-700/60 animate-in slide-in-from-bottom-5">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-extrabold bg-blue-600 text-white px-2.5 py-1 rounded-lg">
+                {selectedExpenseIds.length}
+              </span>
+              <span className="text-xs font-semibold text-slate-200">Selected</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedExpenseIds([])}
+                className="px-2.5 py-1 text-xs text-slate-300 hover:text-white font-medium cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowDeleteMultipleModal(true)}
+                className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs px-3.5 py-1.5 rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete</span>
               </button>
             </div>
           </div>

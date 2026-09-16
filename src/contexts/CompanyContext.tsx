@@ -50,6 +50,7 @@ export const defaultCompanyState = {
   defaultTax: 18,
   currency: 'INR ₹',
   paymentTerms: 'Payment due within 15 days of invoice date.',
+  termsAndConditions: 'Payment due within 15 days of invoice date.',
   notes: 'Thank you for your business!',
   paymentInstructions: 'Please include invoice number on your payment reference.',
   selectedTemplate: 'UNAI Billing',
@@ -164,11 +165,16 @@ export const CompanyProvider = ({ children }) => {
 
   const saveCompanyProfile = async (companyData) => {
     const id = companyData.id || `cmp_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-    const fullData = { ...defaultCompanyState, ...companyData, id };
+    const terms = companyData.paymentTerms || companyData.termsAndConditions || defaultCompanyState.paymentTerms;
+    const fullData = { 
+      ...defaultCompanyState, 
+      ...companyData, 
+      id,
+      paymentTerms: terms,
+      termsAndConditions: terms
+    };
     
     const saved = await dbSaveCompany(fullData);
-
-
     
     await loadData();
     await switchCompany(saved.id);
@@ -177,7 +183,12 @@ export const CompanyProvider = ({ children }) => {
 
   const updateActiveCompany = async (updates) => {
     if (!activeCompany) return null;
-    const updated = { ...activeCompany, ...updates };
+    const terms = updates.paymentTerms || updates.termsAndConditions || activeCompany.paymentTerms;
+    const updated = { 
+      ...activeCompany, 
+      ...updates,
+      ...(updates.paymentTerms || updates.termsAndConditions ? { paymentTerms: terms, termsAndConditions: terms } : {})
+    };
     const saved = await dbSaveCompany(updated);
     
     setCompanies(prev => prev.map(c => c.id === saved.id ? saved : c));

@@ -12,7 +12,7 @@ import { calculateTotals } from '../utils/calculations';
 import { ResponsiveDocumentWrapper } from '../components/ui/ResponsiveDocumentWrapper';
 import { numberToWords } from '../utils/numberToWords';
 import { generateNextDocNumber } from '../utils/documentNumber';
-import { downloadDocumentPDF } from '../services/pdfGenerator';
+import { downloadDocumentPDF, printDocument } from '../services/pdfGenerator';
 import { validateEmail, validateGST, validatePhone } from '../utils/formatting';
 import { Save, Download, FileText, CreditCard, Receipt, Eye, ArrowLeft, Image as ImageIcon, X, Printer } from 'lucide-react';
 import { useToast } from '../components/ui/Toast';
@@ -138,7 +138,8 @@ export const CreateDocument = () => {
         if (existing.referenceNumber) setReferenceNumber(existing.referenceNumber);
         if (existing.description) setDescription(existing.description);
         if (existing.notes) setNotes(existing.notes);
-        if (existing.paymentTerms) setPaymentTerms(existing.paymentTerms);
+        const docTerms = existing.terms || existing.paymentTerms || activeCompany?.paymentTerms || activeCompany?.termsAndConditions || '';
+        if (docTerms) setPaymentTerms(docTerms);
         if (existing.signature) setSignature(existing.signature);
       }
     } else {
@@ -152,8 +153,28 @@ export const CreateDocument = () => {
         num = generateNextDocNumber(activeCompany?.invoicePrefix || 'INV-', activeCompany?.invoiceStartNumber || 1001);
       }
       setDocumentNumber(num);
+
+      if (!paymentTerms && (activeCompany?.paymentTerms || activeCompany?.termsAndConditions)) {
+        setPaymentTerms(activeCompany.paymentTerms || activeCompany.termsAndConditions || '');
+      }
+      if (!notes && activeCompany?.notes) {
+        setNotes(activeCompany.notes);
+      }
     }
   }, [id, docType, activeCompany, documents]);
+
+  // Sync terms & notes when activeCompany loads for a new document
+  useEffect(() => {
+    if (!id) {
+      const companyTerms = activeCompany?.paymentTerms || activeCompany?.termsAndConditions || '';
+      if (companyTerms && !paymentTerms) {
+        setPaymentTerms(companyTerms);
+      }
+      if (activeCompany?.notes && !notes) {
+        setNotes(activeCompany.notes);
+      }
+    }
+  }, [activeCompany, id]);
 
   // Recalculate Totals
   const totals = useMemo(() => {
@@ -237,6 +258,7 @@ export const CreateDocument = () => {
         description,
         notes,
         paymentTerms,
+        terms: paymentTerms,
         signature,
         createdBy: existingDoc?.createdBy || creator
       };
@@ -285,6 +307,7 @@ export const CreateDocument = () => {
         description,
         notes,
         paymentTerms,
+        terms: paymentTerms,
         signature,
         createdBy: existingDoc?.createdBy || creator
       };
@@ -292,8 +315,8 @@ export const CreateDocument = () => {
       const saved = await saveDoc(payload);
       showToast(`Document ${saved.documentNumber} saved successfully!`, 'success');
 
-      // 2. Generate and download PDF
-      showToast('Generating high quality PDF...', 'info');
+      // 2. Generate and download PDF directly without print screen
+      showToast('Downloading PDF automatically...', 'info');
       if (previewRef.current) {
         const clientName = customer.customerName || paidTo || receivedFrom || 'Client';
         const filename = `${documentNumber}-${clientName.replace(/\s+/g, '_')}`;
@@ -307,6 +330,25 @@ export const CreateDocument = () => {
     } catch (err) {
       console.error(err);
       showToast('Failed to save document or export PDF.', 'error');
+    }
+  };
+
+  const handlePrint = async () => {
+    if (!validateForm()) {
+      showToast('Please complete required fields before printing.', 'error');
+      return;
+    }
+
+    try {
+      if (previewRef.current) {
+        const clientName = customer.customerName || paidTo || receivedFrom || 'Client';
+        const filename = `${documentNumber}-${clientName.replace(/\s+/g, '_')}`;
+        const orientation = docType === 'invoice' ? 'portrait' : 'landscape';
+        await printDocument(previewRef.current, filename, orientation);
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to open print dialog.', 'error');
     }
   };
 
@@ -337,6 +379,7 @@ export const CreateDocument = () => {
     description,
     notes,
     paymentTerms,
+    terms: paymentTerms,
     signature
   }), [docType, documentNumber, documentDate, dueDate, status, voucherType, paidTo, receivedFrom, amount, paymentMethod, referenceNumber, description, notes, paymentTerms, signature]);
 
@@ -687,7 +730,7 @@ export const CreateDocument = () => {
           <div className="pt-4 border-t border-slate-100 space-y-4">
             <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider">Notes & Authorized Signature</h3>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5 md:gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Select
                 label="Payment Method"
                 value={paymentMethod}
@@ -703,11 +746,29 @@ export const CreateDocument = () => {
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
               />
-              <Input
-                label="Payment Terms"
-                placeholder="Terms & Conditions"
+            </div>
+
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-semibold text-slate-800">
+                  Terms & Conditions
+                </label>
+                {(activeCompany?.paymentTerms || activeCompany?.termsAndConditions) && (
+                  <button
+                    type="button"
+                    onClick={() => setPaymentTerms(activeCompany.paymentTerms || activeCompany.termsAndConditions || '')}
+                    className="text-[11px] text-blue-600 hover:text-blue-800 font-semibold hover:underline cursor-pointer"
+                  >
+                    Reset to Company Default
+                  </button>
+                )}
+              </div>
+              <textarea
+                rows={3}
+                placeholder="Terms & Conditions (printed under Terms & Condition section)"
                 value={paymentTerms}
                 onChange={(e) => setPaymentTerms(e.target.value)}
+                className="w-full px-3.5 py-2.5 text-xs text-slate-800 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white leading-relaxed resize-y font-sans shadow-2xs"
               />
             </div>
 
@@ -761,7 +822,17 @@ export const CreateDocument = () => {
         </div>
 
         {/* ALWAYS RENDERED — Hidden Canvas for PDF Download (must be visible to html2canvas) */}
-        <div style={{ position: 'fixed', left: '-20000px', top: 0, opacity: 1, visibility: 'visible', pointerEvents: 'none', zIndex: -99999 }}>
+        <div style={{
+          position: 'fixed',
+          left: 0,
+          top: 0,
+          width: docType !== 'invoice' ? '297mm' : '210mm',
+          opacity: 1,
+          visibility: 'visible',
+          pointerEvents: 'none',
+          zIndex: -99999,
+          overflow: 'hidden'
+        }}>
           <div ref={previewRef}>
             <TemplateWrapper
               templateName={selectedTemplate}
@@ -817,7 +888,7 @@ export const CreateDocument = () => {
 
               {/* Modal Footer */}
               <div className="px-6 py-3 bg-white border-t border-slate-200 flex justify-end gap-2">
-                <Button variant="outline" icon={Printer} onClick={handleDownload}>
+                <Button variant="outline" icon={Printer} onClick={handlePrint}>
                   Print
                 </Button>
                 <Button icon={Download} onClick={handleDownload}>

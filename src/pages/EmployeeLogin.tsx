@@ -6,12 +6,13 @@ import { loginAsEmployee, getCompanyEmployees, saveCompanyEmployees } from '../s
 import { 
   ArrowLeft, ArrowRight, Shield, Lock, Hash, KeyRound,
   FileText, Receipt, CreditCard, BookOpen, Eye, EyeOff, AlertCircle,
-  Building2, UserPlus, User
+  Building2, UserPlus, User, CheckCircle2, Check
 } from 'lucide-react';
 import { useToast } from '../components/ui/Toast';
+import { validatePassword } from '../utils/formatting';
 
 export const EmployeeLogin = () => {
-  const { saveCompanyProfile } = useCompany();
+  const { saveCompanyProfile, switchCompany, setAuthenticatedState } = useCompany();
   const navigate = useNavigate();
   const { showToast } = useToast();
 
@@ -34,15 +35,14 @@ export const EmployeeLogin = () => {
     e.preventDefault();
     setErrorMsg('');
 
-    if (!companyCode.trim()) {
-      setErrorMsg('Company ID is required.');
-      return;
-    }
-    if (!employeeLoginId.trim()) {
+    const cleanLoginId = employeeLoginId.trim();
+    const cleanPassword = employeePassword.trim();
+
+    if (!cleanLoginId) {
       setErrorMsg('Employee ID is required.');
       return;
     }
-    if (!employeePassword.trim()) {
+    if (!cleanPassword) {
       setErrorMsg('Password is required.');
       return;
     }
@@ -51,24 +51,27 @@ export const EmployeeLogin = () => {
     try {
       const { company, employee } = await loginAsEmployee(
         companyCode.trim(),
-        employeeLoginId.trim(),
-        employeePassword.trim()
+        cleanLoginId,
+        cleanPassword
       );
       
+      setTempCompany(company);
+      setTempEmployee(employee);
+
       if (employee.mustChangePassword) {
-        setTempCompany(company);
-        setTempEmployee(employee);
         setMustChangeScreen(true);
         setNewPassword('');
         setConfirmPassword('');
-        showToast('Temporary password detected. Please set a new password.', 'info');
+        showToast('Temporary password verified. Please create your permanent password.', 'info');
         return;
       }
       
-      // Save company profile in context
+      // Save company profile in context & switch company
       await saveCompanyProfile(company);
+      await switchCompany(company.id);
       // Set active employee session
       localStorage.setItem('activeEmployee', JSON.stringify(employee));
+      setAuthenticatedState(true);
       
       showToast(`Welcome back, ${employee.name}!`, 'success');
       navigate('/dashboard');
@@ -83,16 +86,28 @@ export const EmployeeLogin = () => {
     e.preventDefault();
     setErrorMsg('');
 
-    if (!newPassword.trim()) {
+    const cleanNewPass = newPassword.trim();
+    const cleanConfirmPass = confirmPassword.trim();
+
+    if (!cleanNewPass) {
       setErrorMsg('New password is required.');
       return;
     }
-    if (newPassword.trim().length < 4) {
-      setErrorMsg('Password must be at least 4 characters long.');
+    if (!validatePassword(cleanNewPass)) {
+      setErrorMsg('Password must be at least 8 characters, containing uppercase, lowercase, and a symbol.');
       return;
     }
-    if (newPassword !== confirmPassword) {
+    if (cleanNewPass !== cleanConfirmPass) {
       setErrorMsg('Passwords do not match.');
+      return;
+    }
+    if (tempEmployee && tempEmployee.password === cleanNewPass) {
+      setErrorMsg('New password cannot be the same as your temporary password.');
+      return;
+    }
+
+    if (!tempCompany || !tempEmployee) {
+      setErrorMsg('Session expired. Please try logging in again.');
       return;
     }
 
@@ -102,27 +117,43 @@ export const EmployeeLogin = () => {
       const employees = await getCompanyEmployees(tempCompany.id);
       
       // 2. Update the password and flag for this employee
+      let updatedEmployee: any = null;
       const updatedEmployees = employees.map((emp: any) => {
-        if (emp.id === tempEmployee.id) {
-          return {
+        if (emp.id === tempEmployee.id || (emp.loginId && emp.loginId.toLowerCase() === tempEmployee.loginId.toLowerCase())) {
+          updatedEmployee = {
             ...emp,
-            password: newPassword,
-            mustChangePassword: false
+            password: cleanNewPass,
+            mustChangePassword: false,
+            passwordSetByEmployee: true,
+            passwordUpdatedAt: new Date().toISOString()
           };
+          return updatedEmployee;
         }
         return emp;
       });
 
+      if (!updatedEmployee) {
+        updatedEmployee = {
+          ...tempEmployee,
+          password: cleanNewPass,
+          mustChangePassword: false,
+          passwordSetByEmployee: true,
+          passwordUpdatedAt: new Date().toISOString()
+        };
+        updatedEmployees.push(updatedEmployee);
+      }
+
       // 3. Save back to database
       await saveCompanyEmployees(tempCompany.id, updatedEmployees);
 
-      showToast('Password updated successfully. Please log in with your new password.', 'success');
-      
-      // Reset state back to login screen
-      setMustChangeScreen(false);
-      setTempEmployee(null);
-      setTempCompany(null);
-      setEmployeePassword(''); // Clear temporary password
+      // 4. Directly log employee into their workspace
+      await saveCompanyProfile(tempCompany);
+      await switchCompany(tempCompany.id);
+      localStorage.setItem('activeEmployee', JSON.stringify(updatedEmployee));
+      setAuthenticatedState(true);
+
+      showToast(`Password updated successfully! Welcome to your workspace, ${updatedEmployee.name || tempEmployee.name}!`, 'success');
+      navigate('/dashboard');
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to update password.');
     } finally {
@@ -265,20 +296,32 @@ export const EmployeeLogin = () => {
           <div id="employee-portal-card" className="w-full bg-[#0d153a]/80 md:bg-white border border-blue-500/20 md:border-slate-200/80 rounded-2xl shadow-2xl md:shadow-lg p-5 sm:p-6 md:p-8 relative overflow-hidden backdrop-blur-xl md:backdrop-blur-none transition-all duration-300">
             
             {mustChangeScreen ? (
-              <form onSubmit={handleChangePasswordSubmit} className="space-y-6" autoComplete="off">
-                <div className="text-center space-y-2 animate-fadeIn">
-                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-amber-500/10 md:bg-amber-50 border border-amber-400/20 md:border-amber-100 mb-2">
+              <form onSubmit={handleChangePasswordSubmit} className="space-y-5" autoComplete="off">
+                <div className="text-center space-y-1.5 animate-fadeIn">
+                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-amber-500/10 md:bg-amber-50 border border-amber-400/20 md:border-amber-100 mb-1 shadow-xs">
                     <Lock className="w-6 h-6 text-amber-400 md:text-amber-600" />
                   </div>
-                  <h3 className="font-bold text-white md:text-slate-900 text-lg">Reset Password</h3>
-                  <p className="text-xs text-slate-300 md:text-slate-500 font-medium">Please choose a new password for your account.</p>
+                  <h3 className="font-bold text-white md:text-slate-900 text-lg">Create Your Password</h3>
+                  <p className="text-xs text-slate-300 md:text-slate-500 font-medium">First-time login: Set your permanent password to access your workspace.</p>
                 </div>
 
                 <div className="space-y-4">
                   {/* Readonly Username Info */}
-                  <div className="bg-[#070c24]/80 md:bg-slate-50 border border-blue-900/60 md:border-slate-100 rounded-xl p-3 flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-slate-400 md:text-slate-500">Employee ID</span>
-                    <span className="text-xs font-mono font-bold text-indigo-300 md:text-indigo-650">{tempEmployee?.loginId}</span>
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-bold text-slate-200 md:text-slate-800">Employee ID</span>
+                      <span className="text-[10px] font-bold text-indigo-400 md:text-indigo-600 bg-indigo-950/60 md:bg-indigo-50 border border-indigo-700/60 md:border-indigo-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-indigo-400 md:text-indigo-600" />
+                        Permanent ID
+                      </span>
+                    </div>
+                    <div className="bg-[#070c24]/80 md:bg-indigo-50/50 border border-blue-900/60 md:border-indigo-200/70 rounded-xl px-3.5 py-2.5 flex items-center gap-2.5">
+                      <User className="w-4 h-4 text-indigo-400 md:text-indigo-600 shrink-0" />
+                      <span className="text-xs font-mono font-bold text-indigo-200 md:text-indigo-950 tracking-wide">{tempEmployee?.loginId || employeeLoginId}</span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 md:text-slate-400 font-medium mt-1">
+                      Your Employee ID remains unchanged for all future logins.
+                    </p>
                   </div>
 
                   {/* New Password */}
@@ -291,12 +334,19 @@ export const EmployeeLogin = () => {
                         name="newPassword"
                         type={showPassword ? "text" : "password"}
                         value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        placeholder="Min 4 characters"
-                        className="w-full pl-9 pr-10 py-2.5 text-sm bg-[#070c24]/80 md:bg-white border border-blue-900/60 md:border-slate-350 text-white md:text-slate-900 rounded-xl focus:border-blue-400 focus:ring-2 focus:ring-blue-500/10 outline-none"
+                        onChange={(e) => { setNewPassword(e.target.value); setErrorMsg(''); }}
+                        placeholder="Enter new strong password"
+                        className="w-full pl-9 pr-10 py-2.5 text-sm bg-[#070c24]/80 md:bg-white border border-blue-900/60 md:border-slate-350 text-white md:text-slate-900 rounded-xl focus:border-blue-400 focus:ring-2 focus:ring-blue-500/10 outline-none font-mono"
                         required
                         autoFocus
                       />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 md:hover:text-slate-600 focus:outline-none"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
                     </div>
                   </div>
 
@@ -310,9 +360,9 @@ export const EmployeeLogin = () => {
                         name="confirmPassword"
                         type={showPassword ? "text" : "password"}
                         value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        onChange={(e) => { setConfirmPassword(e.target.value); setErrorMsg(''); }}
                         placeholder="Confirm new password"
-                        className="w-full pl-9 pr-10 py-2.5 text-sm bg-[#070c24]/80 md:bg-white border border-blue-900/60 md:border-slate-350 text-white md:text-slate-900 rounded-xl focus:border-blue-400 focus:ring-2 focus:ring-blue-500/10 outline-none"
+                        className="w-full pl-9 pr-10 py-2.5 text-sm bg-[#070c24]/80 md:bg-white border border-blue-900/60 md:border-slate-350 text-white md:text-slate-900 rounded-xl focus:border-blue-400 focus:ring-2 focus:ring-blue-500/10 outline-none font-mono"
                         required
                       />
                       <button
@@ -325,8 +375,27 @@ export const EmployeeLogin = () => {
                     </div>
                   </div>
 
+                  {/* Requirements checklist */}
+                  <div className="p-2.5 bg-[#070c24]/80 md:bg-slate-50 border border-blue-900/60 md:border-slate-200/80 rounded-xl space-y-1.5 text-[11px]">
+                    <span className="font-bold text-slate-300 md:text-slate-700 block text-[10px] uppercase tracking-wider">Password Requirements:</span>
+                    <div className="grid grid-cols-1 gap-1 text-slate-400 md:text-slate-600">
+                      <div className={`flex items-center gap-1.5 ${newPassword.length >= 8 ? 'text-emerald-400 md:text-emerald-600 font-bold' : 'text-slate-400'}`}>
+                        <Check className={`w-3 h-3 ${newPassword.length >= 8 ? 'text-emerald-400 md:text-emerald-600 stroke-[3]' : 'text-slate-500'}`} />
+                        <span>At least 8 characters</span>
+                      </div>
+                      <div className={`flex items-center gap-1.5 ${/[A-Z]/.test(newPassword) && /[a-z]/.test(newPassword) ? 'text-emerald-400 md:text-emerald-600 font-bold' : 'text-slate-400'}`}>
+                        <Check className={`w-3 h-3 ${/[A-Z]/.test(newPassword) && /[a-z]/.test(newPassword) ? 'text-emerald-400 md:text-emerald-600 stroke-[3]' : 'text-slate-500'}`} />
+                        <span>Uppercase & lowercase letters</span>
+                      </div>
+                      <div className={`flex items-center gap-1.5 ${/[0-9]/.test(newPassword) && /[^A-Za-z0-9]/.test(newPassword) ? 'text-emerald-400 md:text-emerald-600 font-bold' : 'text-slate-400'}`}>
+                        <Check className={`w-3 h-3 ${/[0-9]/.test(newPassword) && /[^A-Za-z0-9]/.test(newPassword) ? 'text-emerald-400 md:text-emerald-600 stroke-[3]' : 'text-slate-500'}`} />
+                        <span>At least one number & symbol</span>
+                      </div>
+                    </div>
+                  </div>
+
                   {errorMsg && (
-                    <div className="bg-rose-500/10 md:bg-rose-50 border border-rose-500/30 md:border-rose-250 text-rose-300 md:text-rose-700 text-xs px-3.5 py-2.5 rounded-xl font-semibold flex items-center gap-1.5">
+                    <div className="bg-rose-500/10 md:bg-rose-50 border border-rose-500/30 md:border-rose-250 text-rose-300 md:text-rose-700 text-xs px-3.5 py-2.5 rounded-xl font-semibold flex items-center gap-1.5 animate-shake">
                       <AlertCircle className="w-4 h-4 text-rose-400 md:text-rose-600 shrink-0" />
                       <span>{errorMsg}</span>
                     </div>
@@ -349,11 +418,11 @@ export const EmployeeLogin = () => {
                     </Button>
                     <Button
                       type="submit"
-                      className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 md:bg-indigo-650 text-white"
+                      className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 md:bg-indigo-600 text-white"
                       icon={ArrowRight}
                       disabled={changePasswordLoading}
                     >
-                      {changePasswordLoading ? 'Saving...' : 'Set Password'}
+                      {changePasswordLoading ? 'Saving...' : 'Set Password & Enter'}
                     </Button>
                   </div>
                 </div>

@@ -215,11 +215,11 @@ export const MinimalTemplate = ({ company = {}, customer = {}, items = [], total
         )}
 
         {/* Terms and Notes */}
-        {(document.notes || company.notes || document.paymentTerms || company.paymentTerms) && (
+        {(document.notes || company.notes || document.terms || document.paymentTerms || company.termsAndConditions || company.paymentTerms) && (
           <div className="text-[11px] text-slate-500 space-y-1 mb-6">
             {document.notes && <p><span className="font-medium text-slate-700">Notes:</span> {document.notes}</p>}
-            {(document.paymentTerms || company.paymentTerms) && (
-              <p><span className="font-medium text-slate-700">Terms:</span> {document.paymentTerms || company.paymentTerms}</p>
+            {(document.terms || document.paymentTerms || company.termsAndConditions || company.paymentTerms) && (
+              <p className="whitespace-pre-line"><span className="font-medium text-slate-700">Terms & Conditions:</span> {document.terms || document.paymentTerms || company.termsAndConditions || company.paymentTerms}</p>
             )}
           </div>
         )}

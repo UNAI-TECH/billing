@@ -84,6 +84,7 @@ export const UNAIBillingTemplate = ({ company = {}, customer = {}, items = [], t
       {pageChunks.map((chunk, pageIdx) => (
         <div
           key={pageIdx}
+          data-pdf-page="true"
           className={`bg-white text-slate-900 font-sans border border-slate-200 shadow-lg mx-auto relative flex flex-col justify-between overflow-hidden select-none ${containerDimensions} ${pageIdx > 0 ? 'mt-8 print:mt-0' : ''}`}
           style={{ pageBreakAfter: pageIdx < pageChunks.length - 1 ? 'always' : 'auto' }}
         >
@@ -94,6 +95,7 @@ export const UNAIBillingTemplate = ({ company = {}, customer = {}, items = [], t
                 src={watermarkImage}
                 alt="Company Watermark"
                 className="w-96 h-96 object-contain opacity-[0.08] grayscale contrast-200"
+                crossOrigin="anonymous"
               />
             </div>
           )}
@@ -130,7 +132,7 @@ export const UNAIBillingTemplate = ({ company = {}, customer = {}, items = [], t
                 {/* Right: Company Logo & Contact Details */}
                 <div className="text-right space-y-1">
                   {company.logo ? (
-                    <img src={company.logo} alt="Company Logo" className="h-12 w-auto max-w-[180px] ml-auto object-contain mb-1" />
+                    <img src={company.logo} alt="Company Logo" className="h-12 w-auto max-w-[180px] ml-auto object-contain mb-1" crossOrigin="anonymous" />
                   ) : (
                     <h2 className="text-xl font-bold text-slate-900" style={{ color: themeColor }}>
                       {company.companyName}
@@ -294,11 +296,11 @@ export const UNAIBillingTemplate = ({ company = {}, customer = {}, items = [], t
                     </div>
                   )}
 
-                  {(document.paymentTerms || company.paymentTerms || document.notes) && (
+                  {(document.terms || document.paymentTerms || company.termsAndConditions || company.paymentTerms || document.notes) && (
                     <div>
                       <h4 className="font-bold text-slate-900 uppercase text-[11px] tracking-wider mb-1">Terms & Condition</h4>
-                      <p className="text-slate-500 leading-relaxed text-[11px]">
-                        {document.paymentTerms || company.paymentTerms || document.notes}
+                      <p className="text-slate-500 leading-relaxed text-[11px] whitespace-pre-line">
+                        {document.terms || document.paymentTerms || company.termsAndConditions || company.paymentTerms || document.notes}
                       </p>
                     </div>
                   )}
@@ -331,6 +333,7 @@ export const UNAIBillingTemplate = ({ company = {}, customer = {}, items = [], t
                             )}`}
                             alt="Payment QR"
                             className="w-20 h-20 object-contain rounded"
+                            crossOrigin="anonymous"
                           />
                         </div>
                         <div className="text-[10px] text-slate-600 leading-tight text-left">
@@ -396,9 +399,9 @@ export const UNAIBillingTemplate = ({ company = {}, customer = {}, items = [], t
                   {/* Signature Block */}
                   <div className="pt-2 ml-auto inline-block text-right">
                     {document.signature ? (
-                      <img src={document.signature} alt="Signature" className="h-12 w-auto ml-auto mb-1 object-contain" />
+                      <img src={document.signature} alt="Signature" className="h-12 w-auto ml-auto mb-1 object-contain" crossOrigin="anonymous" />
                     ) : company.cfoSignature ? (
-                      <img src={company.cfoSignature} alt="CFO Signature" className="h-12 w-auto ml-auto mb-1 object-contain" />
+                      <img src={company.cfoSignature} alt="CFO Signature" className="h-12 w-auto ml-auto mb-1 object-contain" crossOrigin="anonymous" />
                     ) : (
                       <div className="h-12"></div>
                     )}
