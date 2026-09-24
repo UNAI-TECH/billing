@@ -207,6 +207,14 @@ export const ModernTemplate = ({ company = {}, customer = {}, items = [], totals
             )}
           </div>
         )}
+
+        {/* Terms and Conditions */}
+        {(document.terms || document.paymentTerms || company.termsAndConditions || company.paymentTerms || document.notes) && (
+          <div className="bg-slate-50 border border-slate-100 p-3.5 rounded-xl mb-6 text-[11px]">
+            <p className="font-bold text-slate-800 uppercase tracking-wider text-[10px] mb-1">Terms & Conditions</p>
+            <p className="whitespace-pre-line text-slate-600 leading-relaxed">{document.terms || document.paymentTerms || company.termsAndConditions || company.paymentTerms || document.notes}</p>
+          </div>
+        )}
       </div>
 
       {/* Footer */}

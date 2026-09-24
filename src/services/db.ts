@@ -178,7 +178,7 @@ export function companyToRow(c: any): any {
     receipt_start_number: c.receiptStartNumber,
     default_tax: c.defaultTax,
     currency: c.currency,
-    payment_terms: c.paymentTerms,
+    payment_terms: c.paymentTerms || c.termsAndConditions || c.terms || '',
     notes: c.notes,
     payment_instructions: c.paymentInstructions,
     selected_template: c.selectedTemplate,
@@ -190,6 +190,7 @@ export function companyToRow(c: any): any {
 }
 
 export function rowToCompany(r: any): any {
+  const terms = r.payment_terms || r.paymentTerms || r.terms_and_conditions || r.terms || '';
   return {
     id: r.id,
     companyName: r.company_name || r.companyName,
@@ -226,7 +227,8 @@ export function rowToCompany(r: any): any {
     receiptStartNumber: r.receipt_start_number || r.receiptStartNumber,
     defaultTax: r.default_tax || r.defaultTax,
     currency: r.currency,
-    paymentTerms: r.payment_terms || r.paymentTerms,
+    paymentTerms: terms,
+    termsAndConditions: terms,
     notes: r.notes,
     paymentInstructions: r.payment_instructions || r.paymentInstructions,
     selectedTemplate: r.selected_template || r.selectedTemplate,
@@ -244,7 +246,8 @@ export function docToRow(d: any): any {
     _voucherType: d.voucherType,
     _paymentMethod: d.paymentMethod,
     _description: d.description,
-    _createdBy: d.createdBy
+    _createdBy: d.createdBy,
+    _paymentTerms: d.paymentTerms || d.terms
   };
 
   return {
@@ -263,7 +266,7 @@ export function docToRow(d: any): any {
     amount: d.amount || 0,
     template: d.template,
     notes: d.notes,
-    terms: d.terms,
+    terms: d.terms || d.paymentTerms || '',
     discount: typeof d.discount === 'object' && d.discount !== null ? parseFloat(d.discount.value) || 0 : parseFloat(d.discount) || 0,
     updated_at: d.updatedAt || new Date().toISOString(),
     created_at: d.createdAt || new Date().toISOString()
@@ -272,7 +275,8 @@ export function docToRow(d: any): any {
 
 export function rowToDoc(r: any): any {
   const customerObj = r.customer || {};
-  const { _voucherType, _paymentMethod, _description, _createdBy, ...cleanCustomer } = customerObj;
+  const { _voucherType, _paymentMethod, _description, _createdBy, _paymentTerms, ...cleanCustomer } = customerObj;
+  const resolvedTerms = r.terms || _paymentTerms || r.payment_terms || r.paymentTerms || '';
 
   return {
     id: r.id,
@@ -290,7 +294,8 @@ export function rowToDoc(r: any): any {
     amount: r.amount,
     template: r.template,
     notes: r.notes,
-    terms: r.terms,
+    terms: resolvedTerms,
+    paymentTerms: resolvedTerms,
     discount: typeof r.discount === 'number' ? { type: 'fixed', value: r.discount } : (r.discount || { type: 'percentage', value: 0 }),
     createdAt: r.created_at || r.createdAt,
     updatedAt: r.updated_at || r.updatedAt,
@@ -689,6 +694,59 @@ export async function saveDocument(document: any, localOnly = false) {
   setLocalJSON(LOCAL_STORAGE_KEYS.DOCUMENTS, list);
 
   return docData;
+}
+
+export async function updateCompanyDocumentsTerms(companyId: string, newTerms: string) {
+  if (!companyId) return;
+  incrementDbVersion();
+  const now = new Date().toISOString();
+
+  // 1. Update in local storage
+  const lsDocs = getLocalJSON(LOCAL_STORAGE_KEYS.DOCUMENTS, []);
+  let updatedLs = false;
+  lsDocs.forEach((d: any) => {
+    if (d && d.companyId === companyId) {
+      d.terms = newTerms;
+      d.paymentTerms = newTerms;
+      d.updatedAt = now;
+      updatedLs = true;
+    }
+  });
+  if (updatedLs) {
+    setLocalJSON(LOCAL_STORAGE_KEYS.DOCUMENTS, lsDocs);
+  }
+
+  // 2. Update in IndexedDB
+  const db = await getDB();
+  if (db) {
+    try {
+      const allDocs = await db.getAllFromIndex('documents', 'companyId', companyId);
+      for (const d of allDocs) {
+        d.terms = newTerms;
+        d.paymentTerms = newTerms;
+        d.updatedAt = now;
+        await db.put('documents', d);
+      }
+    } catch (e) {
+      console.error('IDB updateCompanyDocumentsTerms error', e);
+    }
+  }
+
+  // 3. Update in Supabase if configured
+  if (isSupabaseConfigured()) {
+    try {
+      await supabase
+        .from('documents')
+        .update({ terms: newTerms, updated_at: now })
+        .eq('company_id', companyId);
+    } catch (e) {
+      console.error('Supabase updateCompanyDocumentsTerms error:', e);
+    }
+  }
+
+  // Invalidate query cache
+  delete queryCache.documents[companyId];
+  delete queryCache.documents['all'];
 }
 
 export async function getDocumentById(id: string) {
@@ -1298,7 +1356,9 @@ function employeeToRow(emp: any, companyId: string) {
       frontendId: emp.id,
       photo: emp.photo || '',
       salary: emp.salary || '',
-      mustChangePassword: emp.mustChangePassword ?? false
+      mustChangePassword: emp.mustChangePassword ?? false,
+      passwordSetByEmployee: emp.passwordSetByEmployee ?? false,
+      passwordUpdatedAt: emp.passwordUpdatedAt || null
     }
   };
 }
@@ -1327,7 +1387,9 @@ function rowToEmployee(row: any): any {
     isAdmin: !!row.is_admin,
     createdAt: row.created_at || new Date().toISOString(),
     photo: perms.photo || '',
-    mustChangePassword: perms.mustChangePassword ?? false
+    mustChangePassword: perms.mustChangePassword ?? false,
+    passwordSetByEmployee: perms.passwordSetByEmployee ?? false,
+    passwordUpdatedAt: perms.passwordUpdatedAt || null
   };
 }
 
@@ -1444,14 +1506,28 @@ export async function saveCompanyEmployees(companyId: string, employees: any[]):
  */
 export async function loginAsEmployee(companyCode: string, employeeLoginId: string, employeePassword: string) {
   incrementDbVersion();
-  const sanitizedCode = companyCode.replace(/^#\s*/, '').trim().toUpperCase();
+  const sanitizedCode = (companyCode || '').replace(/^#\s*/, '').trim().toUpperCase();
+  const cleanLoginId = (employeeLoginId || '').trim().toLowerCase();
+  const cleanPassword = (employeePassword || '').trim();
 
+  if (!cleanLoginId || !cleanPassword) {
+    throw new Error('Employee ID and Password are required.');
+  }
+
+  const matchEmp = (emp: any) => {
+    if (!emp || !emp.loginId) return false;
+    const loginMatches = emp.loginId.trim().toLowerCase() === cleanLoginId;
+    const passMatches = emp.password === employeePassword || emp.password === cleanPassword;
+    return loginMatches && passMatches;
+  };
+
+  // 1. If companyCode is provided, try that company first
   if (sanitizedCode) {
     let companyData: any = null;
 
     if (isSupabaseConfigured()) {
       try {
-        const { data, error } = await supabase
+        const { data } = await supabase
           .from('companies')
           .select('*')
           .eq('company_code', sanitizedCode)
@@ -1469,55 +1545,47 @@ export async function loginAsEmployee(companyCode: string, employeeLoginId: stri
       const db = await getDB();
       if (db) {
         const allComp = await db.getAll('companies');
-        companyData = allComp.find(c => c.companyCode === sanitizedCode);
+        companyData = allComp.find(c => (c.companyCode || '').replace(/^#\s*/, '').trim().toUpperCase() === sanitizedCode);
       }
     }
 
     if (!companyData) {
       // Check localStorage
       const list = getLocalJSON(LOCAL_STORAGE_KEYS.COMPANIES, []);
-      companyData = list.find(c => c.companyCode === sanitizedCode);
+      companyData = list.find(c => (c.companyCode || '').replace(/^#\s*/, '').trim().toUpperCase() === sanitizedCode);
     }
 
-    if (!companyData) {
-      throw new Error('Company not found. Please check the Company ID.');
-    }
-
-    // Now load the employees for this company
-    const employees = await getCompanyEmployees(companyData.id);
-    const foundEmp = employees.find(
-      emp => emp.loginId.toLowerCase() === employeeLoginId.trim().toLowerCase() && emp.password === employeePassword
-    );
-
-    if (!foundEmp) {
-      throw new Error('Invalid Employee ID or Password.');
-    }
-
-    return {
-      company: companyData,
-      employee: foundEmp
-    };
-  } else {
-    // Search all companies for the employee
-    const companies = await getAllCompanies();
-    for (const company of companies) {
-      try {
-        const employees = await getCompanyEmployees(company.id);
-        const foundEmp = employees.find(
-          emp => emp.loginId.toLowerCase() === employeeLoginId.trim().toLowerCase() && emp.password === employeePassword
-        );
-        if (foundEmp) {
-          return {
-            company,
-            employee: foundEmp
-          };
-        }
-      } catch (err) {
-        console.error('Error fetching employees for company:', company.id, err);
+    if (companyData) {
+      // Load the employees for this company
+      const employees = await getCompanyEmployees(companyData.id);
+      const foundEmp = employees.find(matchEmp);
+      if (foundEmp) {
+        return {
+          company: companyData,
+          employee: foundEmp
+        };
       }
     }
-    throw new Error('Invalid Employee ID or Password.');
   }
+
+  // 2. If not found in the specified company or no companyCode was provided, search across ALL companies
+  const companies = await getAllCompanies();
+  for (const company of companies) {
+    try {
+      const employees = await getCompanyEmployees(company.id);
+      const foundEmp = employees.find(matchEmp);
+      if (foundEmp) {
+        return {
+          company,
+          employee: foundEmp
+        };
+      }
+    } catch (err) {
+      console.error('Error fetching employees for company:', company.id, err);
+    }
+  }
+
+  throw new Error('Invalid Employee ID or Password.');
 }
 
 /**

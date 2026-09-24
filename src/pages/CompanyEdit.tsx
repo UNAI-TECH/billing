@@ -9,6 +9,7 @@ import { LogoUploader } from '../components/company/LogoUploader';
 import { validateEmail, validateGST, validatePAN, validatePhone } from '../utils/formatting';
 import { Save, ArrowLeft, Building2, Landmark, Sliders, Palette } from 'lucide-react';
 import { useToast } from '../components/ui/Toast';
+import { updateCompanyDocumentsTerms } from '../services/db';
 
 export const CompanyEdit = () => {
   const { companies, saveCompanyProfile } = useCompany();
@@ -18,6 +19,7 @@ export const CompanyEdit = () => {
 
   const [formData, setFormData] = useState(defaultCompanyState);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [syncToExistingInvoices, setSyncToExistingInvoices] = useState(true);
 
   useEffect(() => {
     if (id && id !== 'new') {
@@ -69,8 +71,12 @@ export const CompanyEdit = () => {
     }
 
     try {
-      await saveCompanyProfile(formData);
-      showToast('Company profile saved!', 'success');
+      const saved = await saveCompanyProfile(formData);
+      if (syncToExistingInvoices && saved?.id) {
+        const terms = formData.paymentTerms || (formData as any).termsAndConditions || '';
+        await updateCompanyDocumentsTerms(saved.id, terms);
+      }
+      showToast('Company profile saved and invoices updated!', 'success');
       navigate('/settings');
     } catch (err) {
       console.error(err);
@@ -373,11 +379,38 @@ export const CompanyEdit = () => {
               <option value="18">18%</option>
               <option value="28">28%</option>
             </Select>
-            <Input
-              label="Default Payment Terms"
-              value={formData.paymentTerms}
-              onChange={(e) => updateField('paymentTerms', e.target.value)}
-            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 pt-1">
+            <div>
+              <label className="block text-xs font-semibold text-slate-800 mb-1">
+                Terms & Conditions (Printed on Invoices & Bills)
+              </label>
+              <textarea
+                rows={4}
+                value={formData.paymentTerms || (formData as any).termsAndConditions || ''}
+                onChange={(e) => {
+                  updateField('paymentTerms', e.target.value);
+                  updateField('termsAndConditions', e.target.value);
+                }}
+                placeholder="1. Payment due within 15 days of invoice date.&#10;2. Goods once sold will not be taken back.&#10;3. Subject to local jurisdiction."
+                className="w-full px-3.5 py-2.5 text-xs text-slate-800 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white leading-relaxed resize-y font-sans shadow-2xs"
+              />
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mt-2">
+                <p className="text-[11px] text-slate-500">
+                  This text appears under <span className="font-semibold text-slate-700">"Terms & Condition"</span> on all company invoices.
+                </p>
+                <label className="flex items-center gap-2 cursor-pointer select-none text-[11px] text-slate-700 font-medium">
+                  <input
+                    type="checkbox"
+                    checked={syncToExistingInvoices}
+                    onChange={(e) => setSyncToExistingInvoices(e.target.checked)}
+                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                  />
+                  <span>Apply to existing invoices also</span>
+                </label>
+              </div>
+            </div>
           </div>
 
 

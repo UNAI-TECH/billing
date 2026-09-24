@@ -1075,7 +1075,7 @@ export const Ledger = () => {
 
         {/* Filter and Search Bar */}
         <div className="bg-white p-5 rounded-3xl border border-[#f1f3f9] shadow-xs space-y-3">
-          <div className="relative max-w-sm w-full filter-popover-container">
+          <div className="relative w-full filter-popover-container">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
@@ -1313,10 +1313,9 @@ export const Ledger = () => {
                                 setPreviewDoc(fallbackDoc as any);
                               }
                             }}
-                            className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                            className="inline-flex items-center text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
                           >
                             View Bill
-                            <Eye className="w-3 h-3" />
                           </button>
                         </td>
                       </tr>
@@ -1435,10 +1434,9 @@ export const Ledger = () => {
                               setPreviewDoc(fallbackDoc as any);
                             }
                           }}
-                          className="inline-flex items-center gap-1.5 px-4.5 py-2 bg-indigo-50 border border-indigo-100/40 text-[11px] font-extrabold text-indigo-650 hover:bg-indigo-100/50 hover:text-indigo-700 active:scale-95 transition-all rounded-xl cursor-pointer"
+                          className="inline-flex items-center px-4.5 py-2 bg-indigo-50 border border-indigo-100/40 text-[11px] font-extrabold text-indigo-650 hover:bg-indigo-100/50 hover:text-indigo-700 active:scale-95 transition-all rounded-xl cursor-pointer"
                         >
                           <span>View Bill</span>
-                          <Eye className="w-3.5 h-3.5 stroke-[2.2]" />
                         </button>
                       </div>
                     </div>
@@ -1496,14 +1494,14 @@ export const Ledger = () => {
         )}
 
         {/* Hidden PDF Printable Wrapper */}
-        <div style={{ position: 'fixed', left: '-20000px', top: 0, opacity: 1, visibility: 'visible', pointerEvents: 'none', zIndex: -99999 }}>
+        <div style={{ position: 'fixed', left: 0, top: 0, width: '210mm', opacity: 1, visibility: 'visible', pointerEvents: 'none', zIndex: -99999, overflow: 'hidden' }}>
           <div ref={printRef} className="p-8 w-[210mm] min-h-[295mm] bg-white font-sans text-xs text-slate-800 space-y-6 relative overflow-hidden">
             {renderStandardLedgerContent()}
           </div>
         </div>
 
         {/* Hidden Advance PDF Printable Wrapper */}
-        <div style={{ position: 'fixed', left: '-20000px', top: 0, opacity: 1, visibility: 'visible', pointerEvents: 'none', zIndex: -99999 }}>
+        <div style={{ position: 'fixed', left: 0, top: 0, width: '210mm', opacity: 1, visibility: 'visible', pointerEvents: 'none', zIndex: -99999, overflow: 'hidden' }}>
           <div ref={advancePrintRef} id="printable-document" className="w-[210mm] bg-white font-sans text-slate-800">
             {renderAdvanceLedgerContent()}
           </div>
@@ -1617,7 +1615,17 @@ export const Ledger = () => {
 
         {/* Hidden Render Container for PDF Download */}
         {pdfRenderDoc && (
-          <div style={{ position: 'fixed', left: '-20000px', top: 0, opacity: 1, visibility: 'visible', pointerEvents: 'none', zIndex: -99999 }}>
+          <div style={{
+            position: 'fixed',
+            left: 0,
+            top: 0,
+            width: (pdfRenderDoc.documentType && pdfRenderDoc.documentType !== 'invoice') ? '297mm' : '210mm',
+            opacity: 1,
+            visibility: 'visible',
+            pointerEvents: 'none',
+            zIndex: -99999,
+            overflow: 'hidden'
+          }}>
             <div ref={pdfRef}>
               <TemplateWrapper
                 templateName={pdfRenderDoc.template || activeCompany?.selectedTemplate}

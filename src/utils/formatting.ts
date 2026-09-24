@@ -47,6 +47,33 @@ export function validatePassword(password: string): boolean {
   return password.length >= 8 && hasUpper && hasLower && hasNumber && hasSymbol;
 }
 
+export function generateStrongPassword(length = 10): string {
+  const uppers = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const lowers = 'abcdefghjkmnpqrstuvwxyz';
+  const digits = '23456789';
+  const symbols = '!@#$%&*';
+  const all = uppers + lowers + digits + symbols;
+
+  let pass = '';
+  // Guarantee at least one character from each required category
+  pass += uppers.charAt(Math.floor(Math.random() * uppers.length));
+  pass += lowers.charAt(Math.floor(Math.random() * lowers.length));
+  pass += digits.charAt(Math.floor(Math.random() * digits.length));
+  pass += symbols.charAt(Math.floor(Math.random() * symbols.length));
+
+  for (let i = 4; i < length; i++) {
+    pass += all.charAt(Math.floor(Math.random() * all.length));
+  }
+
+  // Fisher-Yates shuffle to ensure random character ordering
+  const arr = pass.split('');
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr.join('');
+}
+
 export function validateGST(gst) {
   if (!gst) return true; // Optional field
   // Standard Indian GSTIN regex pattern (15 characters)

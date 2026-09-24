@@ -4,7 +4,7 @@ import { useCompany } from '../contexts/CompanyContext';
 import { useDocument } from '../contexts/DocumentContext';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { formatCurrency, formatDate } from '../utils/formatting';
-import { downloadDocumentPDF } from '../services/pdfGenerator';
+import { downloadDocumentPDF, printDocument } from '../services/pdfGenerator';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
@@ -176,25 +176,60 @@ export const Documents = () => {
     return result;
   }, [documents, typeFilter, statusFilter, searchQuery, sortBy]);
 
-  const handleDownload = async (doc) => {
+  const handleDownload = async (doc: any) => {
     setPdfRenderDoc(doc);
-    showToast('Generating PDF document...', 'info');
-    setTimeout(async () => {
-      try {
-        if (pdfRef.current) {
-          const prefix = doc.documentNumber || 'Doc';
-          const name = doc.customer?.customerName || doc.paidTo || doc.receivedFrom || 'Client';
-          const orientation = doc.documentType === 'invoice' || !doc.documentType ? 'portrait' : 'landscape';
-          await downloadDocumentPDF(pdfRef.current, `${prefix}-${name.replace(/\s+/g, '_')}`, orientation);
-          showToast('PDF downloaded successfully!', 'success');
-        }
-      } catch (err) {
-        console.error(err);
-        showToast('Failed to download PDF.', 'error');
-      } finally {
-        setPdfRenderDoc(null);
+    showToast('Downloading PDF automatically...', 'info');
+
+    // Dynamically wait until pdfRef mounts in the DOM
+    let attempts = 0;
+    while (!pdfRef.current && attempts < 25) {
+      await new Promise(r => setTimeout(r, 40));
+      attempts++;
+    }
+
+    // Small delay to allow template layout to calculate
+    await new Promise(r => setTimeout(r, 150));
+
+    try {
+      if (!pdfRef.current) {
+        throw new Error('PDF render target could not be prepared.');
       }
-    }, 300);
+      const prefix = doc.documentNumber || 'Doc';
+      const name = doc.customer?.customerName || doc.paidTo || doc.receivedFrom || 'Client';
+      const orientation = doc.documentType === 'invoice' || !doc.documentType ? 'portrait' : 'landscape';
+      await downloadDocumentPDF(pdfRef.current, `${prefix}-${name.replace(/\s+/g, '_')}`, orientation);
+      showToast('PDF downloaded successfully!', 'success');
+    } catch (err: any) {
+      console.error('PDF download error:', err);
+      showToast(`Failed to download PDF: ${err?.message || err}`, 'error');
+    } finally {
+      setPdfRenderDoc(null);
+    }
+  };
+
+  const handlePrint = async (doc: any) => {
+    setPdfRenderDoc(doc);
+
+    let attempts = 0;
+    while (!pdfRef.current && attempts < 25) {
+      await new Promise(r => setTimeout(r, 40));
+      attempts++;
+    }
+    await new Promise(r => setTimeout(r, 150));
+
+    try {
+      if (pdfRef.current) {
+        const prefix = doc.documentNumber || 'Doc';
+        const name = doc.customer?.customerName || doc.paidTo || doc.receivedFrom || 'Client';
+        const orientation = doc.documentType === 'invoice' || !doc.documentType ? 'portrait' : 'landscape';
+        await printDocument(pdfRef.current, `${prefix}-${name.replace(/\s+/g, '_')}`, orientation);
+      }
+    } catch (err: any) {
+      console.error(err);
+      showToast('Failed to open print dialog.', 'error');
+    } finally {
+      setPdfRenderDoc(null);
+    }
   };
 
   const [deleteDocId, setDeleteDocId] = useState(null);
@@ -239,7 +274,7 @@ export const Documents = () => {
 
         {/* Filter and Search Bar */}
         <div className="bg-white p-5 rounded-3xl border border-[#f1f3f9] shadow-xs space-y-3">
-          <div className="relative max-w-sm w-full filter-popover-container">
+          <div className="relative w-full filter-popover-container">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
@@ -719,7 +754,17 @@ export const Documents = () => {
 
         {/* Hidden Render Container for PDF Download */}
         {pdfRenderDoc && (
-          <div style={{ position: 'fixed', left: '-20000px', top: 0, opacity: 1, visibility: 'visible', pointerEvents: 'none', zIndex: -99999 }}>
+          <div style={{
+            position: 'fixed',
+            left: 0,
+            top: 0,
+            width: (pdfRenderDoc.documentType && pdfRenderDoc.documentType !== 'invoice') ? '297mm' : '210mm',
+            opacity: 1,
+            visibility: 'visible',
+            pointerEvents: 'none',
+            zIndex: -99999,
+            overflow: 'hidden'
+          }}>
             <div ref={pdfRef}>
               <TemplateWrapper
                 templateName={pdfRenderDoc.template || activeCompany?.selectedTemplate}
@@ -728,6 +773,7 @@ export const Documents = () => {
                 items={pdfRenderDoc.items || []}
                 totals={pdfRenderDoc.totals || calculateTotals(pdfRenderDoc.items || [], pdfRenderDoc.discount)}
                 document={pdfRenderDoc}
+                documents={documents}
               />
             </div>
           </div>
@@ -782,7 +828,7 @@ export const Documents = () => {
 
               {/* Modal Footer */}
               <div className="px-6 py-3 bg-white border-t border-slate-200 flex justify-end gap-2">
-                <Button variant="outline" icon={Printer} onClick={() => handleDownload(previewDoc)}>
+                <Button variant="outline" icon={Printer} onClick={() => handlePrint(previewDoc)}>
                   Print
                 </Button>
                 <Button icon={Download} onClick={() => handleDownload(previewDoc)}>

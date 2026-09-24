@@ -207,6 +207,14 @@ export const ClassicTemplate = ({ company = {}, customer = {}, items = [], total
             )}
           </div>
         )}
+
+        {/* Terms and Conditions */}
+        {(document.terms || document.paymentTerms || company.termsAndConditions || company.paymentTerms || document.notes) && (
+          <div className="border border-black p-2.5 font-sans text-[11px] mb-6">
+            <p className="font-bold border-b border-black pb-0.5 mb-1 uppercase text-[10px]">Terms & Conditions</p>
+            <p className="whitespace-pre-line text-slate-700">{document.terms || document.paymentTerms || company.termsAndConditions || company.paymentTerms || document.notes}</p>
+          </div>
+        )}
       </div>
 
       {/* Footer */}
