@@ -40,18 +40,20 @@ const AppRoutes = () => {
     const syncEmployeeSession = async () => {
       try {
         const emp = JSON.parse(employeeJson);
+        // Only sync if this employee belongs to the current activeCompany
+        if (emp.companyId && emp.companyId !== activeCompany.id) {
+          return;
+        }
         const employees = await getCompanyEmployees(activeCompany.id);
         const latestEmp = employees.find(e => e.id === emp.id || (e.loginId && e.loginId === emp.loginId));
         if (isMounted) {
           if (!latestEmp) {
             localStorage.removeItem('activeEmployee');
-            window.location.reload();
           } else {
             const currentStr = JSON.stringify(emp);
             const latestStr = JSON.stringify(latestEmp);
             if (currentStr !== latestStr) {
               localStorage.setItem('activeEmployee', latestStr);
-              window.location.reload();
             }
           }
         }
@@ -293,8 +295,8 @@ const AppRoutes = () => {
   return (
     <Routes>
       <Route path="/" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <WorkspaceLogin />} />
-      <Route path="/join" element={<Onboarding />} />
-      <Route path="/onboarding" element={<Onboarding />} />
+      <Route path="/join" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Onboarding />} />
+      <Route path="/onboarding" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Onboarding />} />
       <Route path="/login" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <WorkspaceLogin />} />
       <Route path="/dashboard" element={isAuthenticated ? <Dashboard /> : <Navigate to="/" replace />} />
       <Route path="/documents" element={isAuthenticated ? <Documents /> : <Navigate to="/" replace />} />

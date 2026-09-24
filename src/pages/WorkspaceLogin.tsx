@@ -5,25 +5,29 @@ import { Button } from '../components/ui/Button';
 import { loginAsEmployee, getCompanyEmployees, saveCompanyEmployees } from '../services/db';
 import { 
   Shield, Lock, User, Eye, EyeOff, AlertCircle, 
-  ArrowRight, Building2, LogOut, KeyRound, Users, UserPlus,
+  ArrowRight, Building2, KeyRound, UserPlus,
   FileText, Receipt, CreditCard, BookOpen, X, ArrowLeft
 } from 'lucide-react';
 import { useToast } from '../components/ui/Toast';
 import { validatePassword } from '../utils/formatting';
 
 export const WorkspaceLogin = () => {
-  const { activeCompany, switchCompany, saveCompanyProfile, setAuthenticatedState } = useCompany();
+  const { activeCompany, companies, switchCompany, setAuthenticatedState } = useCompany();
   const navigate = useNavigate();
   const { showToast } = useToast();
 
-  const [loginTab, setLoginTab] = useState<'admin' | 'employee'>('employee');
-  
+  const [selectedCompanyId] = useState<string>('');
+
+  const currentCompany = React.useMemo(() => {
+    if (selectedCompanyId) {
+      const found = companies.find(c => c.id === selectedCompanyId);
+      if (found) return found;
+    }
+    return activeCompany || companies[0] || null;
+  }, [selectedCompanyId, companies, activeCompany]);
+
   // Mobile login modal state
   const [showMobileEmployeeCard, setShowMobileEmployeeCard] = useState(false);
-  
-  // Admin credentials
-  const [adminPassword, setAdminPassword] = useState('');
-  const [showAdminPassword, setShowAdminPassword] = useState(false);
   
   // Employee credentials
   const [employeeLoginId, setEmployeeLoginId] = useState('');
@@ -40,27 +44,6 @@ export const WorkspaceLogin = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [changePasswordLoading, setChangePasswordLoading] = useState(false);
 
-  const handleAdminLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg('');
-    
-    if (!adminPassword.trim()) {
-      setErrorMsg('Workspace password is required.');
-      return;
-    }
-
-    if (!activeCompany) return;
-
-    if (adminPassword === activeCompany.companyPassword) {
-      setAuthenticatedState(true);
-      localStorage.removeItem('activeEmployee'); // admin is active
-      showToast('Admin authentication successful!', 'success');
-      navigate('/dashboard');
-    } else {
-      setErrorMsg('Incorrect workspace password. Please try again.');
-    }
-  };
-
   const handleEmployeeLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
@@ -74,12 +57,33 @@ export const WorkspaceLogin = () => {
       return;
     }
 
-    if (!activeCompany) return;
+    const companyCodeToUse = currentCompany?.companyCode || '';
+    if (!companyCodeToUse) {
+      setErrorMsg('Please select a company or enter a Company ID.');
+      return;
+    }
 
     setLoading(true);
     try {
+      // 1. Check if entered credentials match company workspace / admin credentials
+      const matchingCompany = companies.find(c => 
+        (c.companyCode && c.companyCode.toUpperCase() === employeeLoginId.trim().toUpperCase() && c.companyPassword === employeePassword.trim()) ||
+        (currentCompany && currentCompany.id === c.id && c.companyPassword === employeePassword.trim())
+      ) || (currentCompany && currentCompany.companyPassword === employeePassword.trim() ? currentCompany : null);
+
+      if (matchingCompany) {
+        await switchCompany(matchingCompany.id);
+        localStorage.removeItem('activeEmployee'); // admin is active
+        setAuthenticatedState(true);
+        showToast(`Welcome back to ${matchingCompany.companyName}!`, 'success');
+        navigate('/dashboard', { replace: true });
+        return;
+      }
+
+      // 2. Otherwise authenticate as employee
+      const companyCodeToUse = currentCompany?.companyCode || employeeLoginId.trim().toUpperCase();
       const { company, employee } = await loginAsEmployee(
-        activeCompany.companyCode,
+        companyCodeToUse,
         employeeLoginId.trim(),
         employeePassword.trim()
       );
@@ -93,15 +97,13 @@ export const WorkspaceLogin = () => {
         return;
       }
       
-      // Save company profile in context
-      await saveCompanyProfile(company);
-      // Set active employee session
+      // Save and switch to this particular company
+      await switchCompany(company.id);
       localStorage.setItem('activeEmployee', JSON.stringify(employee));
-      // Authenticate current session
       setAuthenticatedState(true);
       
       showToast(`Welcome back, ${employee.name}!`, 'success');
-      navigate('/dashboard');
+      navigate('/dashboard', { replace: true });
     } catch (err: any) {
       setErrorMsg(err.message || 'Login failed. Please check your credentials.');
     } finally {
@@ -213,13 +215,13 @@ export const WorkspaceLogin = () => {
           </form>
         </div>
       ) : (
-        <div className="space-y-6">
-          <div className="text-center space-y-1 mb-2">
-            <h3 className="font-bold text-slate-900 text-lg">Employee Login</h3>
-            <p className="text-xs text-slate-500 font-medium">Enter your credentials to access your workspace.</p>
-          </div>
-
+        <div className="space-y-4">
           <form onSubmit={handleEmployeeLogin} className="space-y-4">
+            <div className="text-center space-y-1">
+              <h3 className="font-bold text-slate-900 text-lg">Employee Login</h3>
+              <p className="text-xs text-slate-500 font-medium">Enter your credentials to access your workspace.</p>
+            </div>
+
             <div>
               <label className="block text-xs font-bold text-slate-800 mb-1.5">Employee ID</label>
               <div className="relative">

@@ -385,17 +385,14 @@ export async function getAllCompanies(companyIds: string[] | null = null) {
     list = getLocalJSON(LOCAL_STORAGE_KEYS.COMPANIES, []);
   }
 
-  // Deduplicate by ID and normalized company name
+  // Deduplicate by ID
   const seenIds = new Set();
-  const seenNames = new Set();
   const uniqueCompanies = [];
 
   for (const c of list) {
     if (!c || !c.companyName) continue;
-    const normName = c.companyName.trim().toLowerCase();
-    if (!seenIds.has(c.id) && !seenNames.has(normName)) {
+    if (!seenIds.has(c.id)) {
       seenIds.add(c.id);
-      seenNames.add(normName);
       uniqueCompanies.push(c);
     }
   }

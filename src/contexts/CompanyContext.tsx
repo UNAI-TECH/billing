@@ -98,19 +98,15 @@ export const CompanyProvider = ({ children }) => {
         }
       }
 
-      // Filter out duplicate profiles by ID or company name, and only keep locally joined/created ones
+      // Filter out duplicate profiles by ID, and only keep locally joined/created ones
       const uniqueList = [];
       const seenIds = new Set();
-      const seenNames = new Set();
 
       for (let comp of list) {
         if (!comp || !comp.companyName) continue;
         if (!mergedIdsSetObj.has(comp.id)) continue;
-        const normName = comp.companyName.trim().toLowerCase();
-        if (!seenIds.has(comp.id) && !seenNames.has(normName)) {
+        if (!seenIds.has(comp.id)) {
           seenIds.add(comp.id);
-          seenNames.add(normName);
-
           uniqueList.push(comp);
         }
       }
@@ -167,6 +163,8 @@ export const CompanyProvider = ({ children }) => {
     const fullData = { ...defaultCompanyState, ...companyData, id };
     
     const saved = await dbSaveCompany(fullData);
+    await dbSetActiveCompanyId(saved.id);
+    setActiveCompany(saved);
 
 
     

@@ -29,7 +29,8 @@ import {
   Trash2,
   Settings,
   Banknote,
-  LogOut
+  LogOut,
+  Copy
 } from 'lucide-react';
 import { useToast } from '../components/ui/Toast';
 import GradientWaves from '../components/ui/GradientWaves';
@@ -226,6 +227,43 @@ export const Dashboard = () => {
   const [isWelcomeHovered, setIsWelcomeHovered] = useState(false);
   const [showSpotlight, setShowSpotlight] = useState(false);
   const [showWhatsNew, setShowWhatsNew] = useState(false);
+
+  // Newly created workspace banner state
+  const [justCreatedData, setJustCreatedData] = useState<any>(() => {
+    try {
+      const stored = localStorage.getItem('justCreatedCompany');
+      return stored ? JSON.parse(stored) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+
+  const dismissWelcomeBanner = () => {
+    localStorage.removeItem('justCreatedCompany');
+    setJustCreatedData(null);
+  };
+
+  const copyCompanyCode = () => {
+    if (!justCreatedData?.code) return;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(justCreatedData.code);
+        showToast('Company ID copied to clipboard!', 'success');
+      } else {
+        const textArea = document.createElement("textarea");
+        textArea.value = justCreatedData.code;
+        textArea.style.position = "fixed";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        showToast('Company ID copied to clipboard!', 'success');
+      }
+    } catch (err) {
+      showToast('Could not copy automatically.', 'warning');
+    }
+  };
 
   // Show salary reminder red dot if current date is between 29th and 2nd inclusive
   const showSalaryReminderDot = useMemo(() => {
@@ -665,8 +703,46 @@ export const Dashboard = () => {
 
       <div className="space-y-6 font-sans relative z-10">
         
+        {/* Welcome Banner for Newly Created Company */}
+        {justCreatedData && (
+          <div className="bg-gradient-to-r from-indigo-600 via-blue-600 to-sky-600 rounded-3xl p-5 md:p-6 text-white shadow-lg relative overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4 duration-300">
+            <div className="space-y-1">
+              <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full bg-white/20 text-xs font-bold backdrop-blur-sm">
+                🎉 Workspace Ready
+              </div>
+              <h3 className="text-lg md:text-xl font-black">
+                Welcome to {justCreatedData.name || activeCompany?.companyName || 'your workspace'}!
+              </h3>
+              <p className="text-white/80 text-xs max-w-xl">
+                Your workspace is created and active. Share your Company ID with team members to let them join or login.
+              </p>
+            </div>
 
-        
+            <div className="flex flex-wrap items-center gap-2.5 bg-black/20 backdrop-blur-md p-2.5 rounded-2xl border border-white/10 shrink-0">
+              <div className="px-3 py-1 bg-white/10 rounded-xl">
+                <span className="text-[9px] uppercase font-bold text-white/70 block">Company ID</span>
+                <span className="font-mono font-black text-sm text-white select-all">{justCreatedData.code}</span>
+              </div>
+              <button
+                type="button"
+                onClick={copyCompanyCode}
+                className="px-3 py-2 rounded-xl bg-white text-indigo-700 hover:bg-white/90 text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer active:scale-95"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>Copy ID</span>
+              </button>
+              <button
+                type="button"
+                onClick={dismissWelcomeBanner}
+                className="p-2 rounded-xl text-white/70 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                title="Dismiss"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Welcome Section & Create Dropdown */}
         <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-5">
           <div 

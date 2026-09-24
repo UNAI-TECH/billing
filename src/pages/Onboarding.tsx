@@ -30,11 +30,18 @@ const BrandLogo = ({ className = "w-6 h-6" }) => (
 );
 
 export const Onboarding = () => {
-  const { saveCompanyProfile, activeCompany, setAuthenticatedState } = useCompany();
+  const { saveCompanyProfile, activeCompany, switchCompany, setAuthenticatedState, isAuthenticated } = useCompany();
   const navigate = useNavigate();
   const { showToast } = useToast();
 
   const location = useLocation();
+
+  // If already authenticated and active company exists, do NOT show onboarding form (don't fall back)
+  React.useEffect(() => {
+    if (isAuthenticated && activeCompany) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [isAuthenticated, activeCompany, navigate]);
 
   // Mode derived from URL pathname: '/' -> choose, '/onboarding' -> new, '/join' -> join
   const getModeFromPath = (path) => {
@@ -49,6 +56,7 @@ export const Onboarding = () => {
   // NEW COMPANY STATE
   // ==================
   const [step, setStep] = useState(1); // 1 = Details, 2 = Bank, 3 = Defaults, 4 = Password
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState(defaultCompanyState);
   const [errors, setErrors] = useState<Record<string, string | null>>({});
   const [companyPassword, setCompanyPassword] = useState('');
@@ -130,6 +138,7 @@ export const Onboarding = () => {
   const handleFinishNewCompany = async () => {
     if (!validateStep4()) return;
 
+    setIsSubmitting(true);
     try {
       const code = generateCompanyCode();
       const dataWithAuth = {
@@ -137,13 +146,32 @@ export const Onboarding = () => {
         companyCode: code,
         companyPassword: companyPassword,
       };
-      await saveCompanyProfile(dataWithAuth);
+      localStorage.removeItem('activeEmployee');
       setAuthenticatedState(true);
-      setCreatedCode(code);
-      setStep(5); // Show success with code
+      const saved = await saveCompanyProfile(dataWithAuth);
+      await switchCompany(saved.id);
+      
+      try {
+        localStorage.setItem('justCreatedCompany', JSON.stringify({
+          id: saved.id,
+          name: saved.companyName || formData.companyName,
+          code: code,
+          password: companyPassword,
+          timestamp: Date.now()
+        }));
+      } catch (e) {
+        console.error('Failed to store justCreatedCompany', e);
+      }
+
+      showToast(`Workspace "${saved.companyName || formData.companyName}" created successfully!`, 'success');
+      
+      // Straight go to that particular company dashboard without intermediate screens
+      navigate('/dashboard', { replace: true });
     } catch (err) {
       console.error(err);
       showToast('Failed to create company profile.', 'error');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -548,8 +576,9 @@ export const Onboarding = () => {
                 <Button 
                   icon={Check} 
                   onClick={handleFinishNewCompany}
+                  disabled={isSubmitting}
                 >
-                  Create Workspace
+                  {isSubmitting ? 'Creating Workspace...' : 'Create Workspace'}
                 </Button>
               )}
             </div>
