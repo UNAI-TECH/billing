@@ -19,7 +19,10 @@ export const PayslipTemplate = ({ company = {}, employee = {}, record = {} }: Pa
     return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   })();
 
-  const baseSalary = Number(employee.salary || 0);
+  const rawBaseSalary = Number(employee.salary || 0);
+  const baseSalary = (employee.salaryType === 'yearly' || employee.salaryType === 'ctc') && rawBaseSalary > 0
+    ? Math.round(rawBaseSalary / 12)
+    : rawBaseSalary;
   const paidSalary = Number(record.salary || 0);
   const deduction = baseSalary > paidSalary ? baseSalary - paidSalary : 0;
 
@@ -99,7 +102,13 @@ export const PayslipTemplate = ({ company = {}, employee = {}, record = {} }: Pa
             <tr>
               <td className="py-3 px-4">
                 <p className="font-bold text-slate-900">Basic Salary</p>
-                <p className="text-[10px] text-slate-400">Regular monthly contracted base salary</p>
+                <p className="text-[10px] text-slate-400">
+                  {employee.salaryType === 'yearly'
+                    ? `Annual contracted salary (${formatCurrency(rawBaseSalary, currencySymbol)}/yr prorated monthly)`
+                    : employee.salaryType === 'ctc'
+                    ? `Cost to Company CTC (${formatCurrency(rawBaseSalary, currencySymbol)} prorated monthly)`
+                    : 'Regular monthly contracted base salary'}
+                </p>
               </td>
               <td className="py-3 px-4 text-right font-bold text-slate-900">{formatCurrency(baseSalary, '')}</td>
               <td className="py-3 px-4 text-right text-slate-400">-</td>

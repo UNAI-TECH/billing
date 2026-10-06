@@ -4,7 +4,7 @@ import { RecurringRemindersSection } from '../components/settings/RecurringRemin
 
 export const Recurring = () => {
   return (
-    <MainLayout title="Recurring Reminders">
+    <MainLayout title="Cash Flow">
       <div className="max-w-7xl mx-auto">
         <RecurringRemindersSection />
       </div>

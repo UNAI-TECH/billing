@@ -29,9 +29,10 @@ import {
   ChevronDown,
   RefreshCw,
   Copy,
-  RotateCcw,
-  CheckCircle2,
-  KeyRound
+  RotateCcw, 
+  CheckCircle2, 
+  KeyRound,
+  Calendar
 } from 'lucide-react';
 import { ConfirmModal } from '../components/ui/ConfirmModal';
 
@@ -55,6 +56,7 @@ interface Employee {
   email?: string;
   designation?: string;
   salary?: number | string;
+  salaryType?: 'monthly' | 'yearly' | 'ctc';
   permissions: EmployeePermissions;
   isAdmin?: boolean;
   createdAt: string;
@@ -101,6 +103,7 @@ export const Employees = () => {
   const [designation, setDesignation] = useState('');
   const [designationType, setDesignationType] = useState('Accountant');
   const [salary, setSalary] = useState('');
+  const [salaryType, setSalaryType] = useState<'monthly' | 'yearly' | 'ctc' | ''>('');
   const [showPassword, setShowPassword] = useState(false);
   const [permissions, setPermissions] = useState<EmployeePermissions>({ ...defaultPermissions });
   const [isAdmin, setIsAdmin] = useState(false);
@@ -340,6 +343,7 @@ export const Employees = () => {
     setDesignation('');
     setDesignationType('');
     setSalary('');
+    setSalaryType('');
     setPermissions({ ...defaultPermissions });
     setIsAdmin(false);
     setPhoto('');
@@ -367,6 +371,7 @@ export const Employees = () => {
     }
 
     setSalary(emp.salary !== undefined && emp.salary !== null ? String(emp.salary) : '');
+    setSalaryType((emp.salaryType as 'monthly' | 'yearly' | 'ctc') || '');
     setPermissions(emp.permissions || { ...defaultPermissions });
     setIsAdmin(!!emp.isAdmin);
     setPhoto(emp.photo || '');
@@ -439,6 +444,9 @@ export const Employees = () => {
     if (phone.trim() && !validatePhone(phone.trim())) {
       return 'Phone number must be exactly 10 digits.';
     }
+    if (salary.trim() && !salaryType) {
+      return 'Please select a Salary Category.';
+    }
     
     // Check if login ID is already taken
     const exists = employees.some(
@@ -471,6 +479,7 @@ export const Employees = () => {
           email: email.trim().toLowerCase(),
           designation: designation.trim(),
           salary: salary.trim() ? (isNaN(Number(salary.trim())) ? salary.trim() : Number(salary.trim())) : '',
+          salaryType: salaryType || 'monthly',
           permissions,
           isAdmin,
           createdAt: new Date().toISOString(),
@@ -493,6 +502,7 @@ export const Employees = () => {
               email: email.trim().toLowerCase(),
               designation: designation.trim(),
               salary: salary.trim() ? (isNaN(Number(salary.trim())) ? salary.trim() : Number(salary.trim())) : '',
+              salaryType: salaryType || 'monthly',
               permissions,
               isAdmin,
               photo: photo,
@@ -650,7 +660,8 @@ export const Employees = () => {
     emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     emp.loginId.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (emp.designation && emp.designation.toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (emp.salary !== undefined && emp.salary !== null && String(emp.salary).includes(searchTerm))
+    (emp.salary !== undefined && emp.salary !== null && String(emp.salary).includes(searchTerm)) ||
+    (emp.salaryType && emp.salaryType.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   return (
@@ -761,6 +772,9 @@ export const Employees = () => {
                             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-100 text-emerald-700 text-[10px] font-bold shrink-0">
                               <Banknote className="w-3 h-3 text-emerald-600" />
                               {formatCurrency(Number(emp.salary), activeCompany?.currency ? activeCompany.currency.split(' ')[1] || '₹' : '₹')}
+                              <span className="text-[9px] text-emerald-600/80 font-semibold uppercase">
+                                {emp.salaryType === 'yearly' ? '/yr' : emp.salaryType === 'ctc' ? 'CTC' : '/mo'}
+                              </span>
                             </span>
                           )}
                         </div>
@@ -818,7 +832,7 @@ export const Employees = () => {
                               <span className="px-2 py-0.5 rounded-lg bg-blue-50 border border-blue-100/30 text-blue-600 text-[9px] font-bold">Recycle Bin</span>
                             )}
                             {emp.permissions?.accessRecurringPayments && (
-                              <span className="px-2 py-0.5 rounded-lg bg-blue-50 border border-blue-100/30 text-blue-600 text-[9px] font-bold">Recurring Payments</span>
+                              <span className="px-2 py-0.5 rounded-lg bg-blue-50 border border-blue-100/30 text-blue-600 text-[9px] font-bold">Cash Flow</span>
                             )}
                           </>
                         )}
@@ -1058,18 +1072,56 @@ export const Employees = () => {
 
                       {/* Salary */}
                       <div>
-                        <label className="block text-xs font-bold text-slate-800 mb-1.5">Salary</label>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="block text-xs font-bold text-slate-800">Salary</label>
+                          {salary && !isNaN(Number(salary)) && Number(salary) > 0 && (salaryType === 'yearly' || salaryType === 'ctc') && (
+                            <span className="text-[10px] text-indigo-600 font-bold">
+                              ≈ {formatCurrency(Math.round(Number(salary) / 12), activeCompany?.currency ? activeCompany.currency.split(' ')[1] || '₹' : '₹')}/mo
+                            </span>
+                          )}
+                        </div>
                         <div className="relative">
                           <Banknote className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                           <input
                             type="number"
                             value={salary}
                             onChange={(e) => setSalary(e.target.value)}
-                            placeholder="e.g. 50000"
+                            placeholder={
+                              salaryType === 'yearly' 
+                                ? 'e.g. 600000' 
+                                : salaryType === 'ctc' 
+                                ? 'e.g. 600000' 
+                                : 'e.g. 50000'
+                            }
                             className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 outline-none text-sm transition-all"
                             autoComplete="new-salary"
                             name="employee-salary"
                           />
+                        </div>
+                      </div>
+
+                      {/* Salary Category */}
+                      <div>
+                        <label className="block text-xs font-bold text-slate-800 mb-1.5">Salary Category</label>
+                        <div className="relative">
+                          <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                          <select
+                            value={salaryType}
+                            onChange={(e) => setSalaryType(e.target.value as 'monthly' | 'yearly' | 'ctc' | '')}
+                            className={`w-full pl-9 pr-8 py-2 border border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 outline-none text-sm transition-all appearance-none bg-white font-medium cursor-pointer ${
+                              !salaryType ? 'text-slate-400' : 'text-slate-800'
+                            }`}
+                            name="employee-salary-type"
+                            id="employee-salary-type"
+                          >
+                            <option value="" disabled>Select an Option</option>
+                            <option value="monthly">Monthly</option>
+                            <option value="yearly">Yearly</option>
+                            <option value="ctc">CTC</option>
+                          </select>
+                          <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                            <ChevronDown className="w-4 h-4" />
+                          </div>
                         </div>
                       </div>
 
@@ -1271,11 +1323,11 @@ export const Employees = () => {
                         />
                       </label>
 
-                      {/* Access Recurring Payments */}
+                      {/* Access Cash Flow */}
                       <label className="flex items-center justify-between p-3 hover:bg-slate-50/50 transition-colors cursor-pointer">
                         <div className="space-y-0.5">
-                          <p className="text-xs font-bold text-slate-800">Access Recurring Payments</p>
-                          <p className="text-[10px] text-slate-400 font-medium">Manage recurring subscription reminders</p>
+                          <p className="text-xs font-bold text-slate-800">Access Cash Flow</p>
+                          <p className="text-[10px] text-slate-400 font-medium">Manage cash flow and recurring reminders</p>
                         </div>
                         <input
                           type="checkbox"
@@ -1645,9 +1697,20 @@ export const Employees = () => {
                               <p className="text-[10px] text-slate-400 font-semibold">Salary</p>
                               <p className="font-bold text-emerald-700">
                                 {activeEmployeeDetail.salary !== undefined && activeEmployeeDetail.salary !== ''
-                                  ? formatCurrency(Number(activeEmployeeDetail.salary), activeCompany?.currency ? activeCompany.currency.split(' ')[1] || '₹' : '₹')
+                                  ? `${formatCurrency(Number(activeEmployeeDetail.salary), activeCompany?.currency ? activeCompany.currency.split(' ')[1] || '₹' : '₹')} (${
+                                      activeEmployeeDetail.salaryType === 'yearly'
+                                        ? 'Yearly'
+                                        : activeEmployeeDetail.salaryType === 'ctc'
+                                        ? 'CTC'
+                                        : 'Monthly'
+                                    })`
                                   : 'Not provided'}
                               </p>
+                              {activeEmployeeDetail.salary && !isNaN(Number(activeEmployeeDetail.salary)) && (activeEmployeeDetail.salaryType === 'yearly' || activeEmployeeDetail.salaryType === 'ctc') && (
+                                <p className="text-[10px] text-slate-400 font-medium mt-0.5">
+                                  ≈ {formatCurrency(Math.round(Number(activeEmployeeDetail.salary) / 12), activeCompany?.currency ? activeCompany.currency.split(' ')[1] || '₹' : '₹')}/month
+                                </p>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -1718,7 +1781,7 @@ export const Employees = () => {
                               addExpense: 'Add Expense Particulars',
                               viewLedger: 'View Company Ledger',
                               accessRecycleBin: 'Access Recycle Bin',
-                              accessRecurringPayments: 'Access Recurring Reminders'
+                              accessRecurringPayments: 'Access Cash Flow'
                             };
                             return (
                               <div key={permKey} className="flex items-center gap-2 p-2 bg-white border border-slate-100 rounded-xl">

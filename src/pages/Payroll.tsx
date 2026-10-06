@@ -33,6 +33,7 @@ interface Employee {
   email?: string;
   designation?: string;
   salary?: number | string;
+  salaryType?: 'monthly' | 'yearly' | 'ctc';
   isAdmin?: boolean;
   photo?: string;
 }
@@ -143,15 +144,19 @@ export const Payroll = () => {
         r => r.employeeId === emp.id && r.month === selectedMonth
       );
       
-      const salaryVal = emp.salary !== undefined && emp.salary !== '' && !isNaN(Number(emp.salary))
+      const rawSalary = emp.salary !== undefined && emp.salary !== '' && !isNaN(Number(emp.salary))
         ? Number(emp.salary)
         : 0;
+
+      const monthlySalary = (emp.salaryType === 'yearly' || emp.salaryType === 'ctc') && rawSalary > 0
+        ? Math.round(rawSalary / 12)
+        : rawSalary;
 
       return {
         employee: emp,
         record: record || null,
         status: record ? record.status : ('Pending' as const),
-        salary: record ? record.salary : salaryVal,
+        salary: record ? record.salary : monthlySalary,
         paymentDate: record?.paymentDate,
         paymentMethod: record?.paymentMethod,
         notes: record?.notes
@@ -245,11 +250,16 @@ export const Payroll = () => {
           r => !(r.employeeId === emp.id && r.month === selectedMonth)
         );
 
+        const rawSalary = emp.salary !== undefined && emp.salary !== '' && !isNaN(Number(emp.salary)) ? Number(emp.salary) : 0;
+        const monthlySalary = (emp.salaryType === 'yearly' || emp.salaryType === 'ctc') && rawSalary > 0
+          ? Math.round(rawSalary / 12)
+          : rawSalary;
+
         const holdRecord: PayrollRecord = {
           id: `pay_${Date.now()}_${emp.id}`,
           employeeId: emp.id,
           employeeName: emp.name,
-          salary: emp.salary !== undefined && emp.salary !== '' && !isNaN(Number(emp.salary)) ? Number(emp.salary) : 0,
+          salary: monthlySalary,
           month: selectedMonth,
           status: 'Hold',
           updatedAt: new Date().toISOString()
@@ -289,9 +299,13 @@ export const Payroll = () => {
   // Open modal to record payment details
   const handleOpenPaymentModal = (emp: Employee) => {
     setSelectedEmployee(emp);
-    const defaultSalary = emp.salary !== undefined && emp.salary !== '' && !isNaN(Number(emp.salary))
-      ? String(emp.salary)
-      : '0';
+    const rawSalary = emp.salary !== undefined && emp.salary !== '' && !isNaN(Number(emp.salary))
+      ? Number(emp.salary)
+      : 0;
+    const monthlySalary = (emp.salaryType === 'yearly' || emp.salaryType === 'ctc') && rawSalary > 0
+      ? Math.round(rawSalary / 12)
+      : rawSalary;
+    const defaultSalary = String(monthlySalary);
     
     // Check if there is an existing record to prefill
     const existing = payrollRecords.find(
@@ -356,12 +370,13 @@ export const Payroll = () => {
       return;
     }
 
-    const headers = ['Employee ID', 'Employee Name', 'Designation', 'Base Salary', 'Status', 'Paid Amount', 'Payment Date', 'Payment Method', 'Notes'];
+    const headers = ['Employee ID', 'Employee Name', 'Designation', 'Base Salary', 'Category', 'Status', 'Paid Amount', 'Payment Date', 'Payment Method', 'Notes'];
     const rows = filteredPayroll.map(item => [
       item.employee.loginId,
       item.employee.name,
       item.employee.designation || 'N/A',
       item.employee.salary || 0,
+      item.employee.salaryType ? item.employee.salaryType.toUpperCase() : 'MONTHLY',
       item.status,
       item.status === 'Paid' ? item.salary : 0,
       item.paymentDate || 'N/A',
@@ -668,7 +683,19 @@ export const Payroll = () => {
                           {/* Base Salary */}
                           <td className="py-4 px-6 text-xs font-bold text-slate-800">
                             {hasSalary ? (
-                              formatCurrency(Number(employee.salary), currencySymbol)
+                              <div>
+                                <div className="flex items-center gap-1.5">
+                                  <span>{formatCurrency(Number(employee.salary), currencySymbol)}</span>
+                                  <span className="text-[9px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase">
+                                    {employee.salaryType === 'yearly' ? 'yr' : employee.salaryType === 'ctc' ? 'CTC' : 'mo'}
+                                  </span>
+                                </div>
+                                {(employee.salaryType === 'yearly' || employee.salaryType === 'ctc') && (
+                                  <p className="text-[10px] text-slate-400 font-medium mt-0.5">
+                                    ≈ {formatCurrency(Math.round(Number(employee.salary) / 12), currencySymbol)}/mo
+                                  </p>
+                                )}
+                              </div>
                             ) : (
                               <span className="inline-flex items-center gap-1 text-rose-500 font-semibold">
                                 <AlertCircle className="w-3.5 h-3.5" />
@@ -812,7 +839,12 @@ export const Payroll = () => {
                           status === 'Paid' ? 'text-emerald-600' : 'text-slate-900'
                         }`}>
                           {hasSalary ? (
-                            formatCurrency(Number(employee.salary), currencySymbol)
+                            <span className="inline-flex items-center gap-1">
+                              {formatCurrency(Number(employee.salary), currencySymbol)}
+                              <span className="text-[9px] text-slate-400 font-semibold uppercase">
+                                {employee.salaryType === 'yearly' ? '/yr' : employee.salaryType === 'ctc' ? 'CTC' : '/mo'}
+                              </span>
+                            </span>
                           ) : (
                             <span className="text-rose-500 font-bold">Not Set</span>
                           )}
@@ -1004,7 +1036,14 @@ export const Payroll = () => {
 
               {/* Amount to pay */}
               <div>
-                <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Paid Amount ({currencySymbol})</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">Paid Amount ({currencySymbol})</label>
+                  {selectedEmployee.salary && !isNaN(Number(selectedEmployee.salary)) && (selectedEmployee.salaryType === 'yearly' || selectedEmployee.salaryType === 'ctc') && (
+                    <span className="text-[10px] text-indigo-600 font-semibold">
+                      Monthly from {formatCurrency(Number(selectedEmployee.salary), currencySymbol)} {selectedEmployee.salaryType === 'ctc' ? 'CTC' : '/yr'}
+                    </span>
+                  )}
+                </div>
                 <input
                   type="number"
                   step="0.01"

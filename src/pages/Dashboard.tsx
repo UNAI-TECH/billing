@@ -364,7 +364,7 @@ export const Dashboard = () => {
           onClick: () => navigate('/recurring'),
           bgClass: 'bg-purple-50 text-purple-600 border border-purple-100/30',
           icon: <Clock className="w-5 h-5 stroke-[2.2]" />,
-          label: 'Recurring'
+          label: 'Cash Flow'
         },
         {
           show: canRecycle,

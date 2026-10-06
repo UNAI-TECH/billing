@@ -355,7 +355,7 @@ export const MainLayout = ({ children, title }) => {
                               addExpense: 'Add Expense Particulars',
                               viewLedger: 'View Company Ledger',
                               accessRecycleBin: 'Access Recycle Bin',
-                              accessRecurringPayments: 'Access Recurring Reminders'
+                              accessRecurringPayments: 'Access Cash Flow'
                             };
                             return (
                               <div key={permKey} className="flex items-center gap-2 p-2 bg-white border border-slate-100 rounded-xl">

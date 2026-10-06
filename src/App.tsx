@@ -15,6 +15,7 @@ import { PublicPreview } from './pages/PublicPreview';
 import { Expenses } from './pages/Expenses';
 import { Recurring } from './pages/Recurring';
 import { RecycleBin } from './pages/RecycleBin';
+import { Customers } from './pages/Customers';
 import { Employees } from './pages/Employees';
 import { Payroll } from './pages/Payroll';
 import { EmployeeLogin } from './pages/EmployeeLogin';
@@ -302,6 +303,7 @@ const AppRoutes = () => {
       <Route path="/documents" element={isAuthenticated ? <Documents /> : <Navigate to="/" replace />} />
       <Route path="/documents/new" element={isAuthenticated ? <CreateDocument /> : <Navigate to="/" replace />} />
       <Route path="/documents/:id" element={isAuthenticated ? <CreateDocument /> : <Navigate to="/" replace />} />
+      <Route path="/customers" element={isAuthenticated ? <Customers /> : <Navigate to="/" replace />} />
       <Route path="/companies/:id" element={isAuthenticated ? <CompanyEdit /> : <Navigate to="/" replace />} />
       <Route path="/ledger" element={isAuthenticated ? <Ledger /> : <Navigate to="/" replace />} />
       <Route path="/expenses" element={isAuthenticated ? <Expenses /> : <Navigate to="/" replace />} />

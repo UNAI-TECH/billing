@@ -1356,6 +1356,7 @@ function employeeToRow(emp: any, companyId: string) {
       frontendId: emp.id,
       photo: emp.photo || '',
       salary: emp.salary || '',
+      salaryType: emp.salaryType || 'monthly',
       mustChangePassword: emp.mustChangePassword ?? false,
       passwordSetByEmployee: emp.passwordSetByEmployee ?? false,
       passwordUpdatedAt: emp.passwordUpdatedAt || null
@@ -1374,6 +1375,7 @@ function rowToEmployee(row: any): any {
     email: row.email || '',
     designation: row.designation || '',
     salary: perms.salary || '',
+    salaryType: perms.salaryType || 'monthly',
     permissions: {
       viewDocuments: perms.viewDocuments ?? true,
       addInvoice: perms.addInvoice ?? true,
@@ -1663,3 +1665,186 @@ export async function saveCompanyPayroll(companyId: string, payroll: any[]): Pro
   } catch (e) {}
 }
 
+export interface Customer {
+  id: string;
+  customerName: string;
+  companyName?: string;
+  gstNumber?: string;
+  email?: string;
+  phone?: string;
+  billingAddress?: string;
+  shippingAddress?: string;
+  sameAsBilling?: boolean;
+  state?: string;
+  pincode?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/**
+ * Gets all customers for a specific company from settings/localStorage or auto-imports from past invoices.
+ */
+export async function getCompanyCustomers(companyId: string): Promise<Customer[]> {
+  incrementDbVersion();
+  const key = `customers_${companyId}`;
+  let customers: Customer[] = [];
+
+  if (isSupabaseConfigured()) {
+    try {
+      const { data } = await supabase
+        .from('settings')
+        .select('value')
+        .eq('key', key);
+      if (data && data.length > 0 && data[0].value) {
+        customers = JSON.parse(data[0].value);
+      }
+    } catch (e) {
+      console.error('Supabase getCompanyCustomers error:', e);
+    }
+  }
+
+  if (!customers || customers.length === 0) {
+    const db = await getDB();
+    if (db) {
+      try {
+        const setting = await db.get('settings', key);
+        if (setting && setting.value) {
+          customers = JSON.parse(setting.value);
+        }
+      } catch (e) {
+        console.error('IDB getCompanyCustomers error:', e);
+      }
+    }
+  }
+
+  if (!customers || customers.length === 0) {
+    try {
+      const val = localStorage.getItem(key);
+      if (val) customers = JSON.parse(val);
+    } catch (e) {}
+  }
+
+  // If no customer directory exists yet for this company, auto-seed from past invoices
+  if ((!customers || customers.length === 0) && companyId) {
+    try {
+      const docs = await getAllDocuments(companyId);
+      const map = new Map<string, Customer>();
+      docs.forEach((doc: any) => {
+        if (doc.documentType === 'invoice' && doc.customer?.customerName) {
+          const c = doc.customer;
+          const nameKey = (c.customerName || '').trim().toLowerCase();
+          if (nameKey && !map.has(nameKey)) {
+            map.set(nameKey, {
+              id: `cust_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+              customerName: c.customerName.trim(),
+              companyName: c.companyName || '',
+              gstNumber: c.gstNumber || '',
+              email: c.email || '',
+              phone: c.phone || '',
+              billingAddress: c.billingAddress || '',
+              shippingAddress: c.shippingAddress || '',
+              sameAsBilling: c.sameAsBilling ?? true,
+              state: c.state || '',
+              pincode: c.pincode || '',
+              createdAt: doc.documentDate || doc.createdAt || new Date().toISOString()
+            });
+          }
+        }
+      });
+      if (map.size > 0) {
+        customers = Array.from(map.values());
+        await saveCompanyCustomers(companyId, customers);
+      }
+    } catch (err) {
+      console.error('Error auto-importing customers from docs:', err);
+    }
+  }
+
+  return customers || [];
+}
+
+/**
+ * Saves all customers for a specific company.
+ */
+export async function saveCompanyCustomers(companyId: string, customers: Customer[]): Promise<void> {
+  incrementDbVersion();
+  const key = `customers_${companyId}`;
+  const value = JSON.stringify(customers);
+
+  if (isSupabaseConfigured()) {
+    try {
+      await supabase
+        .from('settings')
+        .upsert({ key, value, updated_at: new Date().toISOString() });
+    } catch (e) {
+      console.error('Supabase saveCompanyCustomers error:', e);
+    }
+  }
+
+  const db = await getDB();
+  if (db) {
+    try {
+      await db.put('settings', { key, value });
+    } catch (e) {
+      console.error('IDB saveCompanyCustomers error:', e);
+    }
+  }
+
+  try {
+    localStorage.setItem(key, value);
+  } catch (e) {}
+}
+
+/**
+ * Upserts a customer (creates if not existing, updates if exists).
+ */
+export async function upsertCompanyCustomer(companyId: string, customerData: Partial<Customer>): Promise<Customer[]> {
+  if (!companyId || !customerData.customerName) return [];
+  const customers = await getCompanyCustomers(companyId);
+  const cleanName = customerData.customerName.trim().toLowerCase();
+  const existingIdx = customers.findIndex(c => 
+    (customerData.id && c.id === customerData.id) || 
+    c.customerName.trim().toLowerCase() === cleanName
+  );
+
+  let updatedList: Customer[];
+  if (existingIdx >= 0) {
+    updatedList = [...customers];
+    updatedList[existingIdx] = {
+      ...updatedList[existingIdx],
+      ...customerData,
+      customerName: customerData.customerName.trim(),
+      updatedAt: new Date().toISOString()
+    } as Customer;
+  } else {
+    const newCust: Customer = {
+      id: customerData.id || `cust_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      customerName: customerData.customerName.trim(),
+      companyName: customerData.companyName || '',
+      gstNumber: customerData.gstNumber || '',
+      email: customerData.email || '',
+      phone: customerData.phone || '',
+      billingAddress: customerData.billingAddress || '',
+      shippingAddress: customerData.shippingAddress || '',
+      sameAsBilling: customerData.sameAsBilling ?? true,
+      state: customerData.state || '',
+      pincode: customerData.pincode || '',
+      createdAt: new Date().toISOString()
+    };
+    updatedList = [newCust, ...customers];
+  }
+
+  await saveCompanyCustomers(companyId, updatedList);
+  return updatedList;
+}
+
+/**
+ * Deletes a customer by ID.
+ */
+export async function deleteCompanyCustomer(companyId: string, customerId: string): Promise<Customer[]> {
+  if (!companyId || !customerId) return [];
+  const customers = await getCompanyCustomers(companyId);
+  const updatedList = customers.filter(c => c.id !== customerId);
+  await saveCompanyCustomers(companyId, updatedList);
+  return updatedList;
+}

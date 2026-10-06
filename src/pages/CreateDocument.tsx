@@ -14,8 +14,30 @@ import { numberToWords } from '../utils/numberToWords';
 import { generateNextDocNumber } from '../utils/documentNumber';
 import { downloadDocumentPDF, printDocument } from '../services/pdfGenerator';
 import { validateEmail, validateGST, validatePhone } from '../utils/formatting';
-import { Save, Download, FileText, CreditCard, Receipt, Eye, ArrowLeft, Image as ImageIcon, X, Printer } from 'lucide-react';
+import { 
+  Save, 
+  Download, 
+  FileText, 
+  CreditCard, 
+  Receipt, 
+  Eye, 
+  ArrowLeft, 
+  Image as ImageIcon, 
+  X, 
+  Printer,
+  Contact,
+  ChevronDown,
+  Plus,
+  User,
+  Building2,
+  Hash,
+  Phone,
+  Mail,
+  MapPin,
+  Check
+} from 'lucide-react';
 import { useToast } from '../components/ui/Toast';
+import { getCompanyCustomers, upsertCompanyCustomer, Customer } from '../services/db';
 
 export const CreateDocument = () => {
   const { activeCompany } = useCompany();
@@ -70,6 +92,21 @@ export const CreateDocument = () => {
     state: '',
     pincode: ''
   });
+
+  // Saved Customers List & Selection State
+  const [customersList, setCustomersList] = useState<Customer[]>([]);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
+  const [isAddCustomerModalOpen, setIsAddCustomerModalOpen] = useState(false);
+  const [newCustName, setNewCustName] = useState('');
+  const [newCustCompany, setNewCustCompany] = useState('');
+  const [newCustGst, setNewCustGst] = useState('');
+  const [newCustEmail, setNewCustEmail] = useState('');
+  const [newCustPhone, setNewCustPhone] = useState('');
+  const [newCustBilling, setNewCustBilling] = useState('');
+  const [newCustState, setNewCustState] = useState('');
+  const [newCustPincode, setNewCustPincode] = useState('');
+  const [newCustSameAsBilling, setNewCustSameAsBilling] = useState(true);
+  const [newCustShipping, setNewCustShipping] = useState('');
 
   // Items (For Invoice)
   const [items, setItems] = useState([
@@ -176,6 +213,130 @@ export const CreateDocument = () => {
     }
   }, [activeCompany, id]);
 
+  // Load saved customers directory
+  useEffect(() => {
+    if (activeCompany?.id) {
+      getCompanyCustomers(activeCompany.id).then(list => {
+        setCustomersList(list);
+
+        // Pre-select if customerId passed via URL query parameter
+        const queryCustomerId = searchParams.get('customerId');
+        if (queryCustomerId && !id) {
+          const found = list.find(c => c.id === queryCustomerId);
+          if (found) {
+            setSelectedCustomerId(found.id);
+            setCustomer({
+              customerName: found.customerName || '',
+              companyName: found.companyName || '',
+              gstNumber: found.gstNumber || '',
+              email: found.email || '',
+              phone: found.phone || '',
+              billingAddress: found.billingAddress || '',
+              shippingAddress: found.shippingAddress || '',
+              sameAsBilling: found.sameAsBilling ?? true,
+              state: found.state || '',
+              pincode: found.pincode || ''
+            });
+          }
+        }
+      });
+    }
+  }, [activeCompany?.id, searchParams, id]);
+
+  // Handle selecting a customer from dropdown
+  const handleSelectCustomer = (customerId: string) => {
+    setSelectedCustomerId(customerId);
+    if (!customerId) return;
+    const found = customersList.find(c => c.id === customerId);
+    if (!found) return;
+
+    setCustomer({
+      customerName: found.customerName || '',
+      companyName: found.companyName || '',
+      gstNumber: found.gstNumber || '',
+      email: found.email || '',
+      phone: found.phone || '',
+      billingAddress: found.billingAddress || '',
+      shippingAddress: found.shippingAddress || '',
+      sameAsBilling: found.sameAsBilling ?? true,
+      state: found.state || '',
+      pincode: found.pincode || ''
+    });
+
+    setErrors(prev => {
+      const next = { ...prev };
+      delete next.customerName;
+      delete next.customerEmail;
+      delete next.customerPhone;
+      delete next.customerGst;
+      return next;
+    });
+
+    showToast(`Customer details for "${found.customerName}" loaded!`, 'success');
+  };
+
+  // Add new customer modal handler
+  const handleSaveNewCustomerModal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCustName.trim()) {
+      showToast('Customer Name is required.', 'error');
+      return;
+    }
+    if (!activeCompany?.id) return;
+
+    try {
+      const newCust: Partial<Customer> = {
+        customerName: newCustName.trim(),
+        companyName: newCustCompany.trim(),
+        gstNumber: newCustGst.trim().toUpperCase(),
+        email: newCustEmail.trim().toLowerCase(),
+        phone: newCustPhone.trim(),
+        billingAddress: newCustBilling.trim(),
+        shippingAddress: newCustSameAsBilling ? newCustBilling.trim() : newCustShipping.trim(),
+        sameAsBilling: newCustSameAsBilling,
+        state: newCustState.trim(),
+        pincode: newCustPincode.trim()
+      };
+
+      const updated = await upsertCompanyCustomer(activeCompany.id, newCust);
+      setCustomersList(updated);
+
+      const found = updated.find(c => c.customerName.toLowerCase() === newCust.customerName?.toLowerCase()) || updated[0];
+      if (found) {
+        setSelectedCustomerId(found.id);
+        setCustomer({
+          customerName: found.customerName || '',
+          companyName: found.companyName || '',
+          gstNumber: found.gstNumber || '',
+          email: found.email || '',
+          phone: found.phone || '',
+          billingAddress: found.billingAddress || '',
+          shippingAddress: found.shippingAddress || '',
+          sameAsBilling: found.sameAsBilling ?? true,
+          state: found.state || '',
+          pincode: found.pincode || ''
+        });
+      }
+
+      setIsAddCustomerModalOpen(false);
+      setNewCustName('');
+      setNewCustCompany('');
+      setNewCustGst('');
+      setNewCustEmail('');
+      setNewCustPhone('');
+      setNewCustBilling('');
+      setNewCustState('');
+      setNewCustPincode('');
+      setNewCustShipping('');
+      setNewCustSameAsBilling(true);
+
+      showToast(`Customer "${newCust.customerName}" added and selected!`, 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to add customer.', 'error');
+    }
+  };
+
   // Recalculate Totals
   const totals = useMemo(() => {
     if (docType === 'invoice') {
@@ -264,6 +425,9 @@ export const CreateDocument = () => {
       };
 
       const saved = await saveDoc(payload);
+      if (docType === 'invoice' && customer.customerName.trim() && activeCompany?.id) {
+        upsertCompanyCustomer(activeCompany.id, customer).catch(err => console.error(err));
+      }
       showToast(`Document ${saved.documentNumber} saved successfully!`, 'success');
       navigate('/documents');
     } catch (err) {
@@ -313,6 +477,9 @@ export const CreateDocument = () => {
       };
 
       const saved = await saveDoc(payload);
+      if (docType === 'invoice' && customer.customerName.trim() && activeCompany?.id) {
+        upsertCompanyCustomer(activeCompany.id, customer).catch(err => console.error(err));
+      }
       showToast(`Document ${saved.documentNumber} saved successfully!`, 'success');
 
       // 2. Generate and download PDF directly without print screen
@@ -497,7 +664,62 @@ export const CreateDocument = () => {
           {/* INVOICE CUSTOMER FORM */}
           {docType === 'invoice' && (
             <div className="space-y-4 pt-4 border-t border-slate-100">
-              <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider">Customer Information</h3>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider">Customer Information</h3>
+                  <p className="text-[11px] text-slate-400 font-medium mt-0.5">Select a saved customer to auto-fill details or enter custom info</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsAddCustomerModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-700 font-bold bg-indigo-50/70 hover:bg-indigo-100/70 px-3 py-1.5 rounded-xl border border-indigo-100 transition-all shadow-2xs cursor-pointer w-fit"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>New Customer</span>
+                </button>
+              </div>
+
+              {/* Customer Dropdown Auto-Fetch Box */}
+              <div className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-3.5 sm:p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <Contact className="w-4 h-4 text-indigo-600" />
+                    <span>Select Existing Customer</span>
+                  </label>
+                  {selectedCustomerId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedCustomerId('');
+                      }}
+                      className="text-[11px] text-slate-400 hover:text-rose-600 font-bold transition-colors cursor-pointer"
+                    >
+                      Clear Selection
+                    </button>
+                  )}
+                </div>
+
+                <div className="relative">
+                  <select
+                    id="invoice-customer-dropdown"
+                    value={selectedCustomerId}
+                    onChange={(e) => handleSelectCustomer(e.target.value)}
+                    className={`w-full pl-3.5 pr-9 py-2.5 bg-white border border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 outline-none text-xs font-semibold transition-all appearance-none cursor-pointer ${
+                      !selectedCustomerId ? 'text-slate-400' : 'text-slate-800'
+                    }`}
+                  >
+                    <option value="">-- Select a Customer to Auto-fill Details --</option>
+                    {customersList.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.customerName} {c.companyName ? `• ${c.companyName}` : ''} {c.phone ? `(${c.phone})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                    <ChevronDown className="w-4 h-4" />
+                  </div>
+                </div>
+              </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5 md:gap-4">
                 <Input
@@ -894,6 +1116,153 @@ export const CreateDocument = () => {
                 <Button icon={Download} onClick={handleDownload}>
                   Download PDF
                 </Button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* QUICK ADD CUSTOMER MODAL */}
+        {isAddCustomerModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
+            <div 
+              className="absolute inset-0 cursor-pointer" 
+              onClick={() => setIsAddCustomerModalOpen(false)}
+            />
+            <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-100 flex flex-col max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-200 font-sans">
+              
+              <div className="flex items-center justify-between p-5 pb-4 border-b border-slate-100 shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600">
+                    <Contact className="w-4.5 h-4.5" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-slate-900 text-sm leading-none">
+                      Add New Customer
+                    </h3>
+                    <p className="text-[10px] text-slate-400 font-semibold mt-1">
+                      Save client details for quick invoice generation
+                    </p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setIsAddCustomerModalOpen(false)}
+                  className="w-7 h-7 rounded-lg border border-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-all cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-5">
+                <form onSubmit={handleSaveNewCustomerModal} className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-bold text-slate-800 mb-1">
+                        Customer Name <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={newCustName}
+                        onChange={(e) => setNewCustName(e.target.value)}
+                        placeholder="e.g. John Doe / TechCorp"
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 outline-none text-xs font-semibold transition-all"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-800 mb-1">Company Name</label>
+                      <input
+                        type="text"
+                        value={newCustCompany}
+                        onChange={(e) => setNewCustCompany(e.target.value)}
+                        placeholder="e.g. TechCorp Solutions"
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 outline-none text-xs font-semibold transition-all"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-800 mb-1">GSTIN</label>
+                      <input
+                        type="text"
+                        value={newCustGst}
+                        onChange={(e) => setNewCustGst(e.target.value.toUpperCase())}
+                        placeholder="e.g. 27ABCDE1234F1Z5"
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 outline-none text-xs font-mono uppercase transition-all"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-800 mb-1">Email</label>
+                      <input
+                        type="email"
+                        value={newCustEmail}
+                        onChange={(e) => setNewCustEmail(e.target.value)}
+                        placeholder="e.g. client@techcorp.com"
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 outline-none text-xs font-semibold transition-all"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-800 mb-1">Phone</label>
+                      <input
+                        type="tel"
+                        value={newCustPhone}
+                        onChange={(e) => setNewCustPhone(e.target.value)}
+                        placeholder="e.g. +91 98765 43210"
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 outline-none text-xs font-semibold transition-all"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-bold text-slate-800 mb-1">Billing Address</label>
+                      <textarea
+                        rows={2}
+                        value={newCustBilling}
+                        onChange={(e) => setNewCustBilling(e.target.value)}
+                        placeholder="Street address, Suite..."
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 outline-none text-xs font-semibold transition-all resize-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-800 mb-1">State</label>
+                      <input
+                        type="text"
+                        value={newCustState}
+                        onChange={(e) => setNewCustState(e.target.value)}
+                        placeholder="e.g. Maharashtra"
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 outline-none text-xs font-semibold transition-all"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-800 mb-1">Pincode</label>
+                      <input
+                        type="text"
+                        value={newCustPincode}
+                        onChange={(e) => setNewCustPincode(e.target.value)}
+                        placeholder="e.g. 400001"
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 outline-none text-xs font-semibold transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setIsAddCustomerModalOpen(false)}
+                      className="rounded-xl px-3 py-1.5 text-xs font-bold cursor-pointer"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="submit"
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-4 py-1.5 text-xs font-bold cursor-pointer"
+                    >
+                      Add & Select Customer
+                    </Button>
+                  </div>
+                </form>
               </div>
             </div>
           </div>

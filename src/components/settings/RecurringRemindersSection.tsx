@@ -511,7 +511,7 @@ export const RecurringRemindersSection = () => {
         <div>
           <h1 className="font-extrabold text-slate-900 text-lg tracking-tight flex items-center gap-2">
             <Repeat className="w-5 h-5 text-blue-600 animate-spin-slow" />
-            <span>Recurring Reminders</span>
+            <span>Cash Flow</span>
           </h1>
           <p className="text-xs font-semibold text-slate-500 mt-0.5">
             Configure automated email notifications for recurring incomes (Invoices) and outcomes (Expenses).
